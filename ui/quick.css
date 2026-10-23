@@ -1,0 +1,17 @@
+/* Quick-add popup: floats over any app, so it is opaque rather than wallpaper glass. */
+body{padding:20px;user-select:none}
+.qa{border-radius:var(--r-win);background:rgba(24,24,29,.97);border:1px solid rgba(255,255,255,.1);overflow:hidden;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 14px 30px -8px rgba(0,0,0,.75),0 3px 10px rgba(0,0,0,.45);
+  animation:qa-in 140ms var(--e-out)}
+@keyframes qa-in{from{opacity:0;transform:scale(.98)}}
+.qa-in{display:flex;align-items:center;gap:14px;padding:16px 22px 12px 18px}
+.qa-in input{flex:1;height:30px;font:400 20px/28px var(--font-d);letter-spacing:-.005em;caret-color:var(--ac)}
+.tile{width:26px;height:26px;flex:none;border-radius:7px;display:grid;place-items:center;background:var(--ac-soft);color:var(--ac)}
+.tile .i{width:14px;height:14px;stroke-width:1.8}
+.qa-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:22px;padding:0 22px 14px 58px}
+.qa-ft{display:flex;align-items:center;gap:14px;height:40px;padding:0 14px 0 18px;border-top:1px solid var(--line);font-size:11.5px;color:var(--t3)}
+.qa-ft .dest{margin:0;color:var(--t2)}
+.qa-ft .dest b{font-weight:600;color:var(--t1)}
+.qa-ft .err{color:var(--od)}
+.qa-ft .sp{flex:1}
+.qa-ft span{display:inline-flex;align-items:center;gap:6px}

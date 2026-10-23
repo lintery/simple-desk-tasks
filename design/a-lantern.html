@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Фонарь — виджеты задач</title>
+<style>
+:root{
+  --f:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  --fd:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  --fs:"Segoe UI Variable Small","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  --tint:rgba(22,19,30,.56); --tint-pop:rgba(26,22,34,.72);
+  --t1:#F4F2F8; --t2:rgba(240,236,250,.70); --t3:rgba(240,236,250,.50); --t4:rgba(240,236,250,.30);
+  --stroke:rgba(255,255,255,.07); --hi:rgba(255,255,255,.12);
+  --hover:rgba(255,255,255,.055); --field:rgba(0,0,0,.26);
+  --rose:#FF6B81; --rose-rgb:255,107,129; --ink:#1B1322;
+  --r-win:8px; --r-row:6px; --r-chip:5px;
+  --std:cubic-bezier(.2,0,0,1); --dec:cubic-bezier(.16,1,.3,1); --spring:cubic-bezier(.34,1.56,.64,1);
+}
+.amber{--acc:#FFB35C;--acc-rgb:255,179,92}
+.lilac{--acc:#B8A1FF;--acc-rgb:184,161,255}
+.aqua{--acc:#5CD6E8;--acc-rgb:92,214,232}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{min-height:100vh;background:#050407;color:var(--t1);font:400 14px/20px var(--f);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
+svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.wall{position:fixed;inset:0;background:
+  radial-gradient(38% 46% at 50% 34%,rgba(255,0,150,.34),transparent 70%),
+  radial-gradient(26% 30% at 57% 42%,rgba(255,40,70,.22),transparent 72%),
+  radial-gradient(55% 55% at 8% 100%,rgba(48,22,96,.40),transparent 70%),
+  radial-gradient(45% 45% at 96% 2%,rgba(24,34,84,.45),transparent 70%),#050407}
+.diamond{position:fixed;left:50%;top:300px;width:250px;height:250px;transform:translate(-50%,-50%) rotate(45deg);border:3px solid #ff4fa8;border-radius:8px;box-shadow:0 0 24px #ff2d8f,0 0 80px rgba(255,30,130,.65),inset 0 0 36px rgba(255,40,150,.55)}
+.diamond::after{content:"";position:absolute;inset:36px;border:2px solid rgba(255,70,90,.85);border-radius:6px;box-shadow:0 0 30px rgba(255,40,70,.7)}
+.top{position:relative;text-align:center;padding-top:20px;font:600 12px/16px var(--fs);color:var(--t3)}
+.top b{color:var(--t1);margin-right:6px}
+.stage{position:relative;display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:28px;padding:24px 16px 8px}
+.w{position:relative;display:flex;flex-direction:column;border-radius:var(--r-win);overflow:hidden;isolation:isolate;
+  background:radial-gradient(90% 50% at 0 0,rgba(var(--acc-rgb),.15),transparent 60%),linear-gradient(180deg,rgba(255,255,255,.05),transparent 30%),var(--tint);
+  backdrop-filter:blur(36px) saturate(160%);
+  box-shadow:inset 0 1px 0 var(--hi),inset 0 0 0 1px var(--stroke),0 0 0 1px rgba(0,0,0,.5),0 12px 32px rgba(0,0,0,.38),0 32px 80px -24px rgba(0,0,0,.7)}
+.w::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.10;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
+.w::after{content:"";position:absolute;top:0;left:12px;width:58%;height:1px;background:linear-gradient(90deg,transparent,rgba(var(--acc-rgb),.95) 30%,transparent);box-shadow:0 0 12px rgba(var(--acc-rgb),.8)}
+.hd{display:flex;align-items:center;gap:10px;padding:12px 10px 8px 14px}
+.gl{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;flex:none;color:var(--acc);background:rgba(var(--acc-rgb),.14);box-shadow:inset 0 0 0 1px rgba(var(--acc-rgb),.28),0 0 18px rgba(var(--acc-rgb),.2)}
+.hd h2{margin:0;font:600 15px/20px var(--fd);letter-spacing:-.005em}
+.hd small{display:block;font:400 11.5px/14px var(--fs);color:var(--t3)}
+.sp{flex:1}
+.prog{display:flex;align-items:center;gap:6px;padding-right:4px;font:600 12px/16px var(--f);color:var(--t2);font-variant-numeric:tabular-nums}
+.prog svg{width:18px;height:18px;transform:rotate(-90deg)}
+.cnt{min-width:22px;height:20px;margin-right:4px;padding:0 7px;border-radius:999px;display:grid;place-items:center;font:600 12px/1 var(--f);color:var(--acc);background:rgba(var(--acc-rgb),.13)}
+.ib{width:26px;height:26px;border-radius:5px;display:grid;place-items:center;color:var(--t2)}
+.ib:hover{background:rgba(255,255,255,.08);color:var(--t1)}
+.ib.del:hover{color:var(--rose);background:rgba(var(--rose-rgb),.12)}
+.ib svg{width:15px;height:15px}
+.list{display:flex;flex-direction:column;gap:1px;padding:0 6px 6px}
+.t{position:relative;display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:var(--r-row);transition:background .12s var(--std)}
+.t:hover,.t.hov{background:var(--hover)}
+.cb{position:relative;flex:none;width:18px;height:18px;margin-top:1px;border-radius:50%;border:1.5px solid rgba(255,255,255,.36);display:grid;place-items:center}
+.cb svg{width:11px;height:11px;stroke-width:2.2;opacity:0;color:var(--acc)}
+.t:hover .cb,.t.hov .cb{border-color:var(--acc)}
+.t:hover .cb svg,.t.hov .cb svg{opacity:.55}
+.bd{flex:1;min-width:0}
+.ln{display:flex;align-items:baseline;gap:8px}
+.tm{flex:none;font:600 12.5px/20px var(--f);font-variant-numeric:tabular-nums;color:var(--t2)}
+.tm.nx{color:var(--acc);text-shadow:0 0 12px rgba(var(--acc-rgb),.55)}
+.tt{min-width:0;overflow-wrap:anywhere}
+.mt{display:flex;align-items:center;gap:5px;margin-top:1px;font:400 12px/16px var(--fs);color:var(--t3)}
+.mt svg{width:12px;height:12px}
+.mt .a{color:var(--acc)}
+.acts{position:absolute;right:6px;top:5px;display:flex;gap:2px;opacity:0}
+.t:hover .acts,.t.hov .acts{opacity:1}
+.t:hover .ln,.t.hov .ln{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 112px),transparent calc(100% - 84px))}
+.t.done .cb{background:var(--acc);border-color:var(--acc);box-shadow:0 0 14px rgba(var(--acc-rgb),.55)}
+.t.done .cb svg{opacity:1;color:var(--ink)}
+.t.done .cb::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:1.5px solid var(--acc);animation:ping 2.6s var(--dec) infinite}
+.t.done .tt{color:var(--t3);background:linear-gradient(rgba(var(--acc-rgb),.8),rgba(var(--acc-rgb),.8)) 0 58%/100% 1.5px no-repeat}
+@keyframes ping{0%{transform:scale(1);opacity:.8}40%,100%{transform:scale(2.1);opacity:0}}
+.t.ed{background:var(--field);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),inset 0 -2px 0 var(--acc)}
+.tok{color:var(--acc);background:rgba(var(--acc-rgb),.15);border-radius:4px;padding:0 3px}
+.caret{display:inline-block;width:1.5px;height:17px;margin-left:1px;vertical-align:-3px;background:var(--acc);animation:blink 1.06s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:var(--r-chip);white-space:nowrap;font:600 11.5px/1 var(--fs);color:var(--acc);background:rgba(var(--acc-rgb),.14);box-shadow:inset 0 0 0 1px rgba(var(--acc-rgb),.26)}
+.chip svg{width:12px;height:12px}
+.chip.to{color:var(--c);background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px rgba(255,255,255,.10)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--c,currentColor);box-shadow:0 0 8px var(--c,currentColor)}
+.hint{margin-left:auto;font:400 11px/16px var(--fs);color:var(--t4)}
+kbd{display:inline-block;font:600 10.5px/1 var(--fs);padding:3px 5px;border-radius:4px;color:var(--t2);background:rgba(255,255,255,.08)}
+.sec{display:flex;align-items:center;gap:7px;padding:14px 10px 6px;font:600 12px/16px var(--fs);color:var(--rose)}
+.sec svg{width:14px;height:14px}
+.sec b{font-weight:600;color:var(--t3)}
+.sec::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(var(--rose-rgb),.4),transparent)}
+.t.od{background:linear-gradient(90deg,rgba(var(--rose-rgb),.10),rgba(var(--rose-rgb),.03))}
+.t.od .cb{border-color:rgba(var(--rose-rgb),.65)}
+.t.od .mt{margin-top:4px;color:var(--rose)}
+.rs{margin-left:auto;display:flex;gap:4px}
+.pill{height:24px;padding:0 10px;border-radius:999px;font:600 11.5px/24px var(--fs);color:var(--t1);background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.pill:hover{background:var(--acc);color:var(--ink);box-shadow:none}
+.day{display:flex;align-items:baseline;gap:8px;padding:12px 10px 4px}
+.day b{font:600 13px/18px var(--fd)}
+.day:first-child b{color:var(--acc)}
+.day span{font:400 12px/16px var(--fs);color:var(--t3)}
+.day i{margin-left:auto;font:600 11.5px/16px var(--fs);font-style:normal;color:var(--t4)}
+.snk{position:relative;display:flex;align-items:center;gap:10px;margin:2px 8px 0;padding:6px 6px 6px 12px;border-radius:7px;overflow:hidden;font:400 12.5px/18px var(--f);color:var(--t2);background:rgba(8,7,12,.66);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 10px 24px rgba(0,0,0,.45)}
+.snk>svg{width:14px;height:14px;stroke-width:2;color:var(--acc)}
+.snk span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snk b{color:var(--t1);font-weight:600}
+.snk button{padding:0 10px;border-radius:5px;font:600 12px/26px var(--f);color:var(--acc);background:rgba(var(--acc-rgb),.14)}
+.snk::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--acc);transform-origin:left;animation:drain 5s linear infinite}
+@keyframes drain{to{transform:scaleX(0)}}
+.foot{margin-top:auto;border-top:1px solid rgba(255,255,255,.05)}
+.add{display:flex;align-items:center;gap:10px;margin:6px;padding:9px 10px;border-radius:var(--r-row);color:var(--t3)}
+.pl{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;color:var(--acc);background:rgba(var(--acc-rgb),.15)}
+.pl svg{width:11px;height:11px;stroke-width:2}
+.ex{margin-left:auto;font:400 11.5px/16px var(--fs);color:var(--t4)}
+.add.on{flex-wrap:wrap;background:var(--field);color:var(--t1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.09),inset 0 -2px 0 var(--acc),0 0 0 4px rgba(var(--acc-rgb),.08)}
+.add .in{flex:1;min-width:0}
+.add.on .chips{flex-basis:100%;margin:2px 0 0 28px}
+.cap{position:relative;text-align:center;margin:36px 0 14px;font:600 11px/16px var(--fs);letter-spacing:.06em;text-transform:uppercase;color:var(--t4)}
+.qa{width:600px;max-width:calc(100vw - 32px);margin:0 auto 64px;background:radial-gradient(70% 140% at 0 0,rgba(var(--acc-rgb),.16),transparent 55%),linear-gradient(180deg,rgba(255,255,255,.05),transparent 30%),var(--tint-pop);
+  backdrop-filter:blur(48px) saturate(170%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),inset 0 0 0 1px rgba(255,255,255,.08),0 0 0 1px rgba(0,0,0,.55),0 24px 60px rgba(0,0,0,.55),0 60px 140px -30px rgba(0,0,0,.8)}
+.qi{display:flex;align-items:center;gap:14px;padding:18px 20px 10px}
+.qi .gl{width:34px;height:34px;border-radius:8px}
+.qt{flex:1;font:400 20px/28px var(--fd)}
+.qt .caret{height:24px;vertical-align:-5px}
+.qa .chips{margin:0;padding:0 20px 16px 68px}
+.qf{display:flex;align-items:center;gap:14px;padding:10px 20px;border-top:1px solid rgba(255,255,255,.06);background:rgba(0,0,0,.14);font:400 12px/16px var(--fs);color:var(--t3)}
+.qf .to{display:inline-flex;align-items:center;gap:7px;color:var(--t2)}
+</style>
+</head>
+<body>
+<div class="wall"></div><div class="diamond"></div>
+<svg style="position:absolute;width:0;height:0" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></symbol>
+  <symbol id="i-rep" viewBox="0 0 16 16"><path d="M2.75 7.25A5 5 0 0 1 11.6 4.4M13.25 8.75A5 5 0 0 1 4.4 11.6M11.75 1.75v2.9h-2.9M4.25 14.25v-2.9h2.9"/></symbol>
+  <symbol id="i-next" viewBox="0 0 16 16"><path d="M2.5 8h10M9 4.5L12.5 8 9 11.5"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 16 16"><rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25"/><path d="M2.25 6.75h11.5M5.5 1.75v3M10.5 1.75v3"/></symbol>
+  <symbol id="i-del" viewBox="0 0 16 16"><path d="M2.75 4.5h10.5M6.25 4.5V2.75h3.5V4.5M4.25 4.5l.6 8.4a1 1 0 0 0 1 .85h4.3a1 1 0 0 0 1-.85l.6-8.4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.9"/><path d="M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9"/></symbol>
+  <symbol id="i-inf" viewBox="0 0 16 16"><path d="M8 8C6.6 6.1 5.4 5.25 4.1 5.25a2.75 2.75 0 0 0 0 5.5C5.4 10.75 6.6 9.9 8 8s2.6-2.75 3.9-2.75a2.75 2.75 0 0 1 0 5.5C10.6 10.75 9.4 9.9 8 8z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75"/><path d="M8 5v3.2l2 1.3"/></symbol>
+</svg>
+<div class="top"><b>ФОНАРЬ</b>вариант A · стекло Windows 11 с цветной подсветкой</div>
+<main class="stage">
+  <section class="w amber" style="width:356px">
+    <header class="hd">
+      <div class="gl"><svg><use href="#i-sun"/></svg></div>
+      <div><h2>Сегодня</h2><small>пятница, 23 октября</small></div>
+      <div class="sp"></div>
+      <div class="prog"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" stroke-width="2" style="stroke:rgba(255,255,255,.14)"/><circle cx="9" cy="9" r="7" stroke-width="2" stroke-dasharray="43.98" stroke-dashoffset="31.4" style="stroke:var(--acc)"/></svg>2 / 7</div>
+    </header>
+    <div class="list">
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span>
+        <div class="bd"><div class="ln"><span class="tm nx">10:00</span><span class="tt">Созвон с командой по релизу</span></div><div class="mt"><span class="a">через 25 мин</span></div></div></div>
+      <div class="t hov"><span class="cb"><svg><use href="#i-check"/></svg></span>
+        <div class="bd"><div class="ln"><span class="tm">15:30</span><span class="tt">Выпить витамин D</span></div><div class="mt"><svg><use href="#i-rep"/></svg>каждый день</div></div>
+        <div class="acts"><button class="ib"><svg><use href="#i-next"/></svg></button><button class="ib"><svg><use href="#i-cal"/></svg></button><button class="ib del"><svg><use href="#i-del"/></svg></button></div></div>
+      <div class="t done"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Оплатить интернет</span></div></div></div>
+      <div class="t ed"><span class="cb"><svg><use href="#i-check"/></svg></span>
+        <div class="bd"><div class="tt">Забрать посылку на почте <span class="tok">в 19:00</span><span class="caret"></span></div>
+          <div class="chips"><span class="chip"><svg><use href="#i-clock"/></svg>Сегодня · 19:00</span><span class="hint"><kbd>Enter</kbd> сохранить · <kbd>Esc</kbd></span></div></div></div>
+      <div class="sec"><svg><use href="#i-clock"/></svg>Просрочено <b>2</b></div>
+      <div class="t od"><span class="cb"><svg><use href="#i-check"/></svg></span>
+        <div class="bd"><div class="ln"><span class="tt">Отправить акты бухгалтеру</span></div>
+          <div class="mt"><span>Просрочено · вчера</span><span class="rs"><button class="pill">Сегодня</button><button class="pill">Завтра</button></span></div></div></div>
+      <div class="t od"><span class="cb"><svg><use href="#i-check"/></svg></span>
+        <div class="bd"><div class="ln"><span class="tt">Позвонить в сервис насчёт стиралки</span></div>
+          <div class="mt"><span>Просрочено · 09:00</span><span class="rs"><button class="pill">Завтра</button></span></div></div></div>
+    </div>
+    <div class="snk"><svg><use href="#i-check"/></svg><span>Выполнено: <b>Оплатить интернет</b></span><button>Отменить</button></div>
+    <div class="foot"><div class="add"><span class="pl"><svg><use href="#i-plus"/></svg></span>Новая задача<span class="ex">«в 15:30», «каждый день»</span></div></div>
+  </section>
+  <section class="w lilac" style="width:328px">
+    <header class="hd">
+      <div class="gl"><svg><use href="#i-inf"/></svg></div>
+      <div><h2>Без срока</h2><small>когда-нибудь, но не забыть</small></div>
+      <div class="sp"></div><div class="cnt">5</div>
+    </header>
+    <div class="list">
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Починить кран на кухне</span></div></div></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Найти курсы английского для Миши</span></div></div></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Продлить страховку на машину</span></div><div class="mt">висит 3 недели</div></div></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Перебрать зимнюю одежду</span></div></div></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Разобрать фото с отпуска</span></div></div></div>
+    </div>
+    <div class="foot"><div class="add on">
+      <span class="pl"><svg><use href="#i-plus"/></svg></span>
+      <span class="in">Позвонить маме <span class="tok">в вс</span> <span class="tok">в 12</span><span class="caret"></span></span>
+      <div class="chips"><span class="chip"><svg><use href="#i-cal"/></svg>Вс, 25 окт</span><span class="chip"><svg><use href="#i-clock"/></svg>12:00</span><span class="chip to" style="--c:#5CD6E8"><span class="dot"></span>в «Предстоящие»</span></div>
+    </div></div>
+  </section>
+  <section class="w aqua" style="width:340px">
+    <header class="hd">
+      <div class="gl"><svg><use href="#i-cal"/></svg></div>
+      <div><h2>Предстоящие</h2><small>на две недели вперёд</small></div>
+      <div class="sp"></div><div class="cnt">5</div>
+    </header>
+    <div class="list">
+      <div class="day"><b>Завтра</b><span>сб, 24 окт</span><i>2</i></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tm">12:00</span><span class="tt">Обед с Лёшей</span></div></div></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Поменять фильтр для воды</span></div></div></div>
+      <div class="day"><b>Понедельник</b><span>26 окт · через 3 дня</span><i>2</i></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tm">11:00</span><span class="tt">Отчёт по проекту</span></div><div class="mt"><svg><use href="#i-rep"/></svg>каждый пн</div></div></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Записаться к стоматологу</span></div></div></div>
+      <div class="day"><b>Суббота</b><span>31 окт · через 8 дней</span><i>1</i></div>
+      <div class="t"><span class="cb"><svg><use href="#i-check"/></svg></span><div class="bd"><div class="ln"><span class="tt">Подарок Ане на день рождения</span></div></div></div>
+    </div>
+    <div class="foot"><div class="add"><span class="pl"><svg><use href="#i-plus"/></svg></span>Новая задача<span class="ex">«в пн в 9», «25.10»</span></div></div>
+  </section>
+</main>
+<div class="cap">Быстрое добавление · <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>Пробел</kbd></div>
+<section class="w qa aqua">
+  <div class="qi"><div class="gl"><svg><use href="#i-plus"/></svg></div>
+    <div class="qt">Вынести мусор <span class="tok">каждый пн</span> <span class="tok">в 8:30</span><span class="caret"></span></div></div>
+  <div class="chips"><span class="chip"><svg><use href="#i-cal"/></svg>Пн, 26 окт</span><span class="chip"><svg><use href="#i-clock"/></svg>08:30</span><span class="chip"><svg><use href="#i-rep"/></svg>каждый пн</span></div>
+  <div class="qf"><span class="to" style="--c:#5CD6E8"><span class="dot"></span>Попадёт в «Предстоящие»</span><span class="sp"></span><span><kbd>Enter</kbd> добавить</span><span><kbd>Esc</kbd></span></div>
+</section>
+</body>
+</html>

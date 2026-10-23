@@ -1,0 +1,500 @@
+//! Grabs the text selected in whatever app was in front when the quick-add
+//! hotkey was pressed: sends Ctrl+Insert (copy — unlike Ctrl+C it never
+//! interrupts a program in a terminal), reads the clipboard if it changed,
+//! then puts the user's previous clipboard contents back.
+//!
+//! The user's clipboard must never be lost:
+//! - if it can't be saved (busy, too big, too slow to render), nothing is
+//!   copied at all and the popup opens empty;
+//! - if the copy doesn't arrive in time (nothing selected, or a slow app such
+//!   as remote desktop), the saved clipboard stays pending for 1.5 s and is
+//!   put back if that app's copy lands late;
+//! - while such a copy is pending, the hotkey doesn't copy again, so there is
+//!   never more than one copy in flight.
+
+use std::{
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Mutex,
+    },
+    thread,
+    time::{Duration, Instant},
+};
+use windows::{
+    core::{w, PCWSTR},
+    Win32::{
+        Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL, HWND},
+        Graphics::Gdi::{CopyEnhMetaFileW, DeleteEnhMetaFile, HENHMETAFILE},
+        System::{
+            DataExchange::{
+                CloseClipboard, CountClipboardFormats, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
+                GetClipboardOwner, GetClipboardSequenceNumber, OpenClipboard, RegisterClipboardFormatW,
+                SetClipboardData,
+            },
+            Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+            },
+            Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE},
+        },
+        UI::{
+            Input::KeyboardAndMouse::{
+                GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+                KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_INSERT, VK_LWIN, VK_MENU,
+                VK_RWIN, VK_SHIFT,
+            },
+            WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId, IsHungAppWindow, IsWindow},
+        },
+    },
+};
+
+const CF_UNICODETEXT: u32 = 13;
+const CF_ENHMETAFILE: u32 = 14;
+/// Formats whose handle isn't an HGLOBAL. CF_BITMAP is covered by the CF_DIB
+/// Windows synthesizes; CF_ENHMETAFILE is copied as a metafile.
+const NON_MEMORY_FORMATS: [u32; 7] = [2, 3, 9, 0x80, 0x82, 0x83, 0x8E];
+/// Window classes of consoles/terminals: nothing is ever sent there.
+const CONSOLE_CLASSES: [&str; 3] = ["ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS", "PseudoConsoleWindow"];
+const MAX_CHARS: usize = 500;
+/// Saving the clipboard renders delayed formats (a big Excel range…); past
+/// these limits we don't touch the clipboard at all.
+const SAVE_BUDGET: Duration = Duration::from_millis(600);
+const SAVE_MAX_BYTES: usize = 64 * 1024 * 1024;
+/// How long a late copy from a slow app is still expected.
+const LATE_WINDOW: Duration = Duration::from_millis(1500);
+
+/// Our copy of an enhanced metafile; freed unless handed to the clipboard.
+struct Emf(HENHMETAFILE);
+// A metafile handle is process-wide and only used by one thread at a time.
+unsafe impl Send for Emf {}
+impl Drop for Emf {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DeleteEnhMetaFile(Some(self.0));
+        }
+    }
+}
+
+enum Saved {
+    Memory(u32, Vec<u8>),
+    Metafile(Emf),
+}
+
+/// The user's clipboard, saved by a capture whose copy didn't arrive in time.
+struct Pending {
+    saved: Vec<Saved>,
+    generation: u64,
+}
+static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
+/// Captures and late restores never interleave.
+static LOCK: Mutex<()> = Mutex::new(());
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// A restore is still being retried in the background (clipboard was busy):
+/// no new capture may touch the clipboard until it's done.
+static RESTORING: AtomicBool = AtomicBool::new(false);
+
+/// When a deferred restore may still write: checked with the clipboard open,
+/// so nothing can change between the check and the write.
+#[derive(Clone, Copy)]
+enum Check {
+    /// The clipboard still holds exactly what it held at this sequence number.
+    Unchanged(u32),
+    /// The current content is the late copy of this process (see `is_late_copy`).
+    LateCopyFrom(u32),
+    /// Same, and nothing has been written since this sequence number (a
+    /// deferred restore must not approve content that arrived later).
+    LateCopyAt(u32, u32),
+}
+
+impl Check {
+    fn holds(self) -> bool {
+        let seq_now = || unsafe { GetClipboardSequenceNumber() };
+        match self {
+            Check::Unchanged(seq) => seq_now() == seq,
+            Check::LateCopyFrom(target) => is_late_copy(target),
+            Check::LateCopyAt(target, seq) => seq_now() == seq && is_late_copy(target),
+        }
+    }
+}
+
+/// Selected text of the foreground app, if any. Blocks for up to ~1 s, so
+/// call it off the main thread. `owner` is one of our windows (needed to
+/// restore the clipboard).
+pub fn capture(owner: HWND) -> Option<String> {
+    let fg = unsafe { GetForegroundWindow() };
+    if fg.0.is_null() || is_ours(fg) || is_console(fg) {
+        return None;
+    }
+    let _serial = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if RESTORING.load(Ordering::SeqCst) || PENDING.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        return None; // an earlier copy is still unsettled: don't start another
+    }
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let target = pid_of(fg);
+    if !wait_modifiers_released(Duration::from_millis(800)) {
+        return None; // keys still held: a copy now would be Alt+Ctrl+Insert
+    }
+    if clipboard_owner_hung() {
+        return None; // reading its data would block (and hold the clipboard open)
+    }
+
+    // No copy unless the user's clipboard is safely saved.
+    let (saved, saved_seq) = with_clipboard(owner, Duration::from_millis(300), save_all).flatten()?;
+    // The window may have changed while we waited; never send keys elsewhere.
+    let now_fg = unsafe { GetForegroundWindow() };
+    if now_fg != fg || is_console(now_fg) {
+        return None;
+    }
+    let before = unsafe { GetClipboardSequenceNumber() };
+    if before != saved_seq {
+        return None; // something wrote the clipboard since we saved it: our copy is stale
+    }
+    send_copy();
+    let deadline = Instant::now() + Duration::from_millis(300);
+    while unsafe { GetClipboardSequenceNumber() } == before {
+        if Instant::now() > deadline {
+            *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some(Pending { saved, generation });
+            let owner = owner.0 as isize;
+            thread::spawn(move || late_restore(owner, before, generation, target));
+            return None;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    thread::sleep(Duration::from_millis(30)); // let the app finish writing all formats
+
+    // Read the selection and put the user's clipboard back in one session:
+    // nothing can slip in between.
+    let mut slot = Some(saved);
+    let text = with_clipboard(owner, Duration::from_millis(2500), |_| {
+        let text = read_selection(());
+        restore_all(slot.take().expect("one session"));
+        text
+    })
+    .flatten();
+    if let Some(saved) = slot {
+        // Clipboard stayed busy: restore later, but only over that same copy.
+        restore_later(owner, saved, Check::Unchanged(unsafe { GetClipboardSequenceNumber() }));
+    }
+
+    let text = text?.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return None;
+    }
+    Some(text.chars().take(MAX_CHARS).collect())
+}
+
+/// Settles the pending clipboard: if the target app's copy lands within the
+/// late window, put the user's clipboard back; otherwise (nothing was
+/// selected, or the user copied something themselves) leave it alone. The
+/// first change settles it: after a copy of the user's own, their new content
+/// is the clipboard to keep.
+fn late_restore(owner: isize, before: u32, generation: u64, target: u32) {
+    let until = Instant::now() + LATE_WINDOW;
+    loop {
+        let changed = unsafe { GetClipboardSequenceNumber() } != before;
+        if changed || Instant::now() > until {
+            // Ctrl physically down when the change shows up: the user's own copy.
+            let user_copy = changed && key_down(VK_CONTROL);
+            let _serial = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let mut slot = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+            if !slot.as_ref().is_some_and(|p| p.generation == generation) {
+                return;
+            }
+            let pending = slot.take().expect("checked above");
+            drop(slot);
+            if changed && !user_copy {
+                // Opening the clipboard waits for the writer to finish; the
+                // check and the write then happen in that same session.
+                let owner = HWND(owner as *mut _);
+                let check = Check::LateCopyFrom(target);
+                let mut data = Some(pending.saved);
+                let opened = with_clipboard(owner, Duration::from_millis(2500), |_| {
+                    let saved = data.take().expect("one session");
+                    if check.holds() {
+                        restore_all(saved);
+                    }
+                });
+                if let (None, Some(saved)) = (opened, data) {
+                    let seq = unsafe { GetClipboardSequenceNumber() };
+                    restore_later(owner, saved, Check::LateCopyAt(target, seq));
+                }
+            }
+            return;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Whether the clipboard change is the target app's late copy rather than the
+/// user's own. Some apps copy without an owner window or through a helper
+/// process; while our popup is in front the user can only copy inside it, and
+/// those copies come from our own processes (WebView2 runs as our children).
+fn is_late_copy(target: u32) -> bool {
+    if unsafe { CountClipboardFormats() } == 0 {
+        return false; // a clear (e.g. a password manager wiping it) is not a copy
+    }
+    let me = std::process::id();
+    let owner = unsafe { GetClipboardOwner() }.ok().map(pid_of).filter(|&p| p != 0);
+    if owner.is_some_and(|p| p == me || parent_pid(p) == Some(me)) {
+        return false;
+    }
+    let front = pid_of(unsafe { GetForegroundWindow() });
+    owner == Some(target) || owner.is_none() || front == me || front == target
+}
+
+fn parent_pid(pid: u32) -> Option<u32> {
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
+        let mut entry = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        let mut found = None;
+        let mut ok = Process32FirstW(snap, &mut entry).is_ok();
+        while ok {
+            if entry.th32ProcessID == pid {
+                found = Some(entry.th32ParentProcessID);
+                break;
+            }
+            ok = Process32NextW(snap, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snap);
+        found
+    }
+}
+
+fn pid_of(hwnd: HWND) -> u32 {
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    pid
+}
+
+fn is_ours(hwnd: HWND) -> bool {
+    pid_of(hwnd) == std::process::id()
+}
+
+fn is_console(hwnd: HWND) -> bool {
+    let mut buf = [0u16; 128];
+    let n = unsafe { GetClassNameW(hwnd, &mut buf) } as usize;
+    let class = String::from_utf16_lossy(&buf[..n.min(buf.len())]);
+    CONSOLE_CLASSES.contains(&class.as_str())
+}
+
+fn key_down(vk: VIRTUAL_KEY) -> bool {
+    unsafe { GetAsyncKeyState(vk.0 as i32) as u16 & 0x8000 != 0 }
+}
+
+/// The hotkey's own Alt/Ctrl/Shift may still be held; a copy sent now would
+/// arrive as e.g. Alt+Ctrl+Insert. False if they're still held at the limit.
+fn wait_modifiers_released(limit: Duration) -> bool {
+    let deadline = Instant::now() + limit;
+    let held = || [VK_MENU, VK_CONTROL, VK_SHIFT, VK_LWIN, VK_RWIN].into_iter().any(key_down);
+    while held() {
+        if Instant::now() > deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    true
+}
+
+/// The clipboard's owner doesn't respond: asking it for delayed data would hang.
+fn clipboard_owner_hung() -> bool {
+    unsafe { GetClipboardOwner() }.is_ok_and(|w| !w.0.is_null() && unsafe { IsHungAppWindow(w) }.as_bool())
+}
+
+fn key(vk: VIRTUAL_KEY, up: bool, extended: bool) -> INPUT {
+    let mut flags = KEYBD_EVENT_FLAGS(0);
+    if up {
+        flags |= KEYEVENTF_KEYUP;
+    }
+    if extended {
+        flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+    }
+}
+
+fn send_copy() {
+    let inputs = [
+        key(VK_CONTROL, false, false),
+        key(VK_INSERT, false, true),
+        key(VK_INSERT, true, true),
+        key(VK_CONTROL, true, false),
+    ];
+    unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+}
+
+/// Runs `f` with the clipboard open, retrying (with backoff) while another
+/// app holds it, for up to `patience`.
+fn with_clipboard<T>(owner: HWND, patience: Duration, f: impl FnOnce(()) -> T) -> Option<T> {
+    let deadline = Instant::now() + patience;
+    let mut pause = Duration::from_millis(5);
+    loop {
+        if unsafe { OpenClipboard(Some(owner)) }.is_ok() {
+            let out = f(());
+            unsafe {
+                let _ = CloseClipboard();
+            }
+            return Some(out);
+        }
+        if Instant::now() > deadline {
+            return None;
+        }
+        thread::sleep(pause);
+        pause = (pause * 2).min(Duration::from_millis(80));
+    }
+}
+
+/// The clipboard stayed busy (clipboard managers grab it right after a copy):
+/// keep trying in the background for a while, writing only if `check` still
+/// holds once it's open. New captures wait until this is settled.
+fn restore_later(owner: HWND, saved: Vec<Saved>, check: Check) {
+    RESTORING.store(true, Ordering::SeqCst);
+    let owner = owner.0 as isize;
+    thread::spawn(move || {
+        let owner = HWND(owner as *mut _);
+        let mut data = Some(saved);
+        for _ in 0..10 {
+            let opened = with_clipboard(owner, Duration::from_millis(1000), |_| {
+                let saved = data.take().expect("one session");
+                if check.holds() {
+                    restore_all(saved);
+                } // else: someone copied something newer — keep that, drop ours
+            });
+            if opened.is_some() {
+                break;
+            }
+        }
+        RESTORING.store(false, Ordering::SeqCst);
+    });
+}
+
+fn global_bytes(h: HANDLE) -> Option<Vec<u8>> {
+    let g = HGLOBAL(h.0);
+    unsafe {
+        let size = GlobalSize(g);
+        let ptr = GlobalLock(g) as *const u8;
+        if ptr.is_null() {
+            return None;
+        }
+        let bytes = std::slice::from_raw_parts(ptr, size).to_vec();
+        let _ = GlobalUnlock(g);
+        Some(bytes)
+    }
+}
+
+/// `None` unless the whole clipboard could be copied safely: too big, too slow,
+/// formats that aren't plain memory (private/GDI ranges), or a format its live
+/// owner failed to deliver — in all those cases we won't touch the clipboard.
+fn save_all(_: ()) -> Option<(Vec<Saved>, u32)> {
+    let started = Instant::now();
+    let mut out = Vec::new();
+    let mut total = 0usize;
+    let mut failed = false;
+    let mut fmt = 0u32;
+    loop {
+        fmt = unsafe { EnumClipboardFormats(fmt) };
+        if fmt == 0 {
+            break;
+        }
+        if started.elapsed() > SAVE_BUDGET || total > SAVE_MAX_BYTES || (0x200..=0x3FF).contains(&fmt) {
+            return None;
+        }
+        if NON_MEMORY_FORMATS.contains(&fmt) {
+            continue;
+        }
+        let Ok(h) = (unsafe { GetClipboardData(fmt) }) else {
+            failed = true;
+            continue;
+        };
+        if fmt == CF_ENHMETAFILE {
+            let copy = unsafe { CopyEnhMetaFileW(HENHMETAFILE(h.0), PCWSTR::null()) };
+            if copy.is_invalid() {
+                failed = true;
+            } else {
+                out.push(Saved::Metafile(Emf(copy)));
+            }
+        } else if let Some(bytes) = global_bytes(h) {
+            total += bytes.len();
+            out.push(Saved::Memory(fmt, bytes));
+        } else {
+            failed = true;
+        }
+    }
+    // A format missing because its owner already exited is empty anyway.
+    let owner_alive = unsafe { GetClipboardOwner() }.is_ok_and(|w| !w.0.is_null() && unsafe { IsWindow(Some(w)) }.as_bool());
+    if failed && owner_alive {
+        return None;
+    }
+    // Read while still open: renders we triggered above are already counted.
+    Some((out, unsafe { GetClipboardSequenceNumber() }))
+}
+
+fn restore_all(saved: Vec<Saved>) {
+    unsafe {
+        if EmptyClipboard().is_err() {
+            return;
+        }
+        for item in saved {
+            match item {
+                Saved::Memory(fmt, bytes) => set_bytes(fmt, &bytes),
+                Saved::Metafile(emf) => {
+                    // On success the clipboard owns the metafile: don't free it.
+                    if SetClipboardData(CF_ENHMETAFILE, Some(HANDLE(emf.0 .0))).is_ok() {
+                        std::mem::forget(emf);
+                    }
+                }
+            }
+        }
+        // Putting the old contents back is not a new copy: keep it out of
+        // Win+V history and cloud clipboard sync.
+        for name in [w!("CanIncludeInClipboardHistory"), w!("CanUploadToCloudClipboard")] {
+            let fmt = RegisterClipboardFormatW(name);
+            if fmt != 0 {
+                set_bytes(fmt, &0u32.to_le_bytes());
+            }
+        }
+    }
+}
+
+/// Puts one memory format on the (open) clipboard; frees the block if refused.
+fn set_bytes(fmt: u32, bytes: &[u8]) {
+    unsafe {
+        let Ok(g) = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)) else { return };
+        let ptr = GlobalLock(g) as *mut u8;
+        if ptr.is_null() {
+            let _ = GlobalFree(Some(g));
+            return;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+        let _ = GlobalUnlock(g);
+        // On success the clipboard owns the memory.
+        if SetClipboardData(fmt, Some(HANDLE(g.0))).is_err() {
+            let _ = GlobalFree(Some(g));
+        }
+    }
+}
+
+/// The copied text — unless the app copied the whole current line because
+/// nothing was selected (VS Code, Visual Studio do that).
+fn read_selection(_: ()) -> Option<String> {
+    unsafe {
+        let vs = RegisterClipboardFormatW(w!("VisualStudioEditorOperationsLineCutCopyClipboardTag"));
+        if vs != 0 && GetClipboardData(vs).is_ok() {
+            return None;
+        }
+        let code = RegisterClipboardFormatW(w!("vscode-editor-data"));
+        if code != 0 {
+            if let Ok(h) = GetClipboardData(code) {
+                let meta = global_bytes(h).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+                if meta.replace(' ', "").contains("\"isFromEmptySelection\":true") {
+                    return None;
+                }
+            }
+        }
+    }
+    let h = unsafe { GetClipboardData(CF_UNICODETEXT) }.ok()?;
+    let bytes = global_bytes(h)?;
+    let wide: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let end = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
+    Some(String::from_utf16_lossy(&wide[..end]))
+}

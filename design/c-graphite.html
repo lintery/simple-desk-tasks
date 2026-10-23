@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Графит — виджеты задач</title>
+<style>
+:root{
+  --font:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  --font-d:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  --tint:rgba(21,21,25,.74);
+  --raise:rgba(255,255,255,.045); --raise-2:rgba(255,255,255,.075);
+  --line:rgba(255,255,255,.065); --edge:rgba(255,255,255,.09);
+  --t1:#ececef; --t2:#a3a3ab; --t3:#6f6f78; --t4:#4a4a53;
+  --ac:#8e9fff; --ac-soft:rgba(142,159,255,.14); --ac-line:rgba(142,159,255,.5);
+  --od:#ff6b5d; --od-soft:rgba(255,107,93,.085); --od-line:rgba(255,107,93,.55);
+  --r-win:8px; --r-row:6px; --r-chip:5px;
+  --e-out:cubic-bezier(.2,.8,.2,1); --e-spring:cubic-bezier(.34,1.56,.64,1);
+  --d1:120ms; --d2:180ms; --d3:260ms;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{color-scheme:dark}
+body{min-height:100vh;padding:48px 24px 72px;font:400 13px/18px var(--font);color:var(--t1);-webkit-font-smoothing:antialiased;background:#040405}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.wall{position:fixed;inset:0;z-index:-1;overflow:hidden;background:
+  radial-gradient(36% 44% at 50% 38%,rgba(255,24,110,.22),transparent 70%),
+  radial-gradient(70% 60% at 50% 40%,rgba(110,0,70,.30),transparent 72%),
+  radial-gradient(120% 80% at 50% 120%,rgba(50,0,35,.55),transparent 60%),#040405}
+.wall::before{content:"";position:absolute;left:50%;top:38%;width:290px;height:290px;border-radius:10px;
+  transform:translate(-50%,-50%) rotate(45deg);border:3px solid #ff3a8c;
+  box-shadow:0 0 14px #ff2a7f,0 0 50px rgba(255,30,110,.75),0 0 150px rgba(255,20,90,.45),inset 0 0 14px #ff2a7f,inset 0 0 54px rgba(255,30,110,.4)}
+.cap{text-align:center;margin:-28px 0 18px;font-size:12px;color:var(--t3)}
+.cap b{color:var(--t1);font-weight:600;margin-right:6px}
+.i{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.desk{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:28px}
+.w{width:340px;height:560px;display:flex;flex-direction:column;position:relative;overflow:hidden;border-radius:var(--r-win);background:var(--tint);
+  backdrop-filter:blur(36px) saturate(1.4);border:1px solid var(--edge);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 18px 50px -12px rgba(0,0,0,.6),0 2px 6px rgba(0,0,0,.3)}
+.hd{flex:none;position:relative;display:flex;align-items:center;gap:8px;padding:14px 10px 12px 20px}
+.ttl{display:flex;align-items:baseline;gap:8px;min-width:0}
+.ttl h2{font:600 15px/20px var(--font-d);letter-spacing:-.01em}
+.ttl span{font-size:12px;color:var(--t3);white-space:nowrap}
+.cnt{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+.odb{display:inline-flex;align-items:center;gap:5px;color:var(--od);font-weight:600}
+.odb::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--od);box-shadow:0 0 0 3px var(--od-soft)}
+.more{opacity:0;transition:opacity var(--d2) var(--e-out)}
+.w:hover .more{opacity:1}
+.prog{position:absolute;left:20px;right:16px;bottom:0;height:1px;background:var(--line)}
+.prog i{display:block;height:100%;width:var(--p,0);background:var(--ac);border-radius:1px}
+.list{flex:1;min-height:0;overflow:auto;padding:6px 6px 8px;display:flex;flex-direction:column}
+.grow{flex:1;min-height:12px}
+.row{position:relative;flex:none;display:flex;align-items:flex-start;gap:10px;min-height:32px;padding:7px 12px 7px 14px;border-radius:var(--r-row);transition:background var(--d1) var(--e-out)}
+.row:hover,.row.hov{background:var(--raise)}
+.cb{flex:none;position:relative;width:16px;height:16px;margin-top:1px;border-radius:50%;border:1.5px solid var(--t4);display:grid;place-items:center;transition:border-color var(--d1),background var(--d2) var(--e-out)}
+.row:hover .cb,.row.hov .cb{border-color:var(--t2)}
+.cb svg{width:10px;height:10px;fill:none;stroke:#101014;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9;stroke-dashoffset:9}
+.done .cb{background:var(--ac);border-color:var(--ac)!important;animation:pop 320ms var(--e-spring)}
+.done .cb svg{stroke-dashoffset:0;transition:stroke-dashoffset 200ms 80ms var(--e-out)}
+.done .cb::after{content:"";position:absolute;inset:-1.5px;border-radius:50%;animation:ring 420ms var(--e-out) both}
+@keyframes pop{0%{transform:scale(.72)}60%{transform:scale(1.1)}100%{transform:scale(1)}}
+@keyframes ring{from{box-shadow:0 0 0 0 var(--ac-line)}to{box-shadow:0 0 0 7px rgba(142,159,255,0)}}
+.tx{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tx span{box-decoration-break:clone;-webkit-box-decoration-break:clone;background:linear-gradient(currentColor,currentColor) no-repeat 0 58%/0 1px;transition:background-size var(--d3) 120ms var(--e-out),color var(--d3) var(--e-out)}
+.done .tx span{background-size:100% 1px;color:var(--t3)}
+.meta{flex:none;display:flex;align-items:center;gap:5px;height:18px;font-size:12px;color:var(--t2);font-variant-numeric:tabular-nums}
+.meta .i{width:11px;height:11px;color:var(--t3)}
+.meta.next{color:var(--ac)}
+.meta.next::before{content:"";width:4px;height:4px;border-radius:50%;background:var(--ac)}
+.meta.stale{color:var(--t4)}
+.done .meta{color:var(--t4)}
+.acts{display:none;gap:2px;margin:-3px -4px -3px 0}
+.row:hover .acts,.row.hov .acts{display:flex}
+.ib{width:24px;height:24px;border-radius:var(--r-chip);display:grid;place-items:center;color:var(--t3)}
+.ib:hover{background:var(--raise-2);color:var(--t1)}
+.ib.del:hover{color:var(--od)}
+.row.edit{flex-wrap:wrap;background:var(--raise);box-shadow:inset 0 0 0 1px var(--ac-line)}
+.edit .tx{display:block}
+.caret{display:inline-block;width:1px;height:15px;margin-left:1px;vertical-align:-3px;background:var(--ac);animation:blink 1.05s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.edit-bar{flex-basis:100%;display:flex;align-items:center;gap:6px;padding-left:26px;margin-top:2px}
+.hint{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;color:var(--t3)}
+.chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:var(--r-chip);font-size:11.5px;font-weight:500;color:var(--t2);background:var(--raise-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.chip .i{width:12px;height:12px}
+.chip.on{color:var(--ac);background:var(--ac-soft)}
+.chip.ghost{background:none;box-shadow:inset 0 0 0 1px var(--line);color:var(--t3)}
+kbd{font:600 10px/16px var(--font);min-width:16px;padding:0 4px;text-align:center;border-radius:4px;color:var(--t3);background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line),inset 0 -1px 0 rgba(255,255,255,.06)}
+mark{color:var(--ac);background:var(--ac-soft);border-radius:4px;padding:0 3px;margin:0 -1px}
+.gh{flex:none;display:flex;align-items:baseline;gap:6px;padding:14px 12px 4px 14px;font-size:12px;line-height:16px}
+.gh:first-child{padding-top:6px}
+.gh b{font-weight:600}
+.gh span{color:var(--t3)}
+.gh i{flex:1;height:1px;align-self:center;background:var(--line);margin:0 4px}
+.gh em{font-style:normal;color:var(--t4);font-variant-numeric:tabular-nums}
+.ods{flex:none;padding:0 0 4px;border-radius:8px;background:linear-gradient(180deg,rgba(255,107,93,.10),rgba(255,107,93,.04));box-shadow:inset 0 0 0 1px rgba(255,107,93,.16)}
+.ods-h{display:flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 14px;font:600 11px/14px var(--font);letter-spacing:.02em;color:var(--od)}
+.ods-h .n{font-variant-numeric:tabular-nums;opacity:.75}
+.lnk{margin-left:auto;font-size:11.5px;font-weight:500;letter-spacing:0;color:var(--t3);padding:2px 6px;border-radius:4px}
+.row.od:hover{background:var(--od-soft)}
+.od .cb{border-color:var(--od-line)}
+.od .body{flex:1;min-width:0}
+.odl{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:12px;color:var(--od);font-variant-numeric:tabular-nums}
+.rs{margin-left:auto;display:flex;gap:4px;margin-right:-4px}
+.pill{height:22px;padding:0 9px;border-radius:var(--r-chip);font-size:11.5px;font-weight:500;color:var(--t1);background:rgba(255,255,255,.07)}
+.pill:hover{background:var(--ac-soft);color:var(--ac)}
+.snk{flex:none;position:relative;display:flex;align-items:center;gap:10px;height:36px;margin:0 8px 8px;padding:0 6px 0 12px;border-radius:8px;background:#26262b;overflow:hidden;font-size:12px;color:var(--t2);box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 24px rgba(0,0,0,.45)}
+.snk .i{color:var(--ac)}
+.snk b{flex:1;min-width:0;font-weight:400;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.undo{height:24px;padding:0 8px;border-radius:5px;font-weight:600;color:var(--ac)}
+.snk::after{content:"";position:absolute;left:0;bottom:0;height:2px;background:var(--ac);opacity:.75;animation:drain 5s linear infinite}
+@keyframes drain{from{width:100%}to{width:0}}
+.add{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:44px;padding:0 14px 0 20px;border-top:1px solid var(--line);color:var(--t4)}
+.plus{width:16px;height:16px;border-radius:50%;border:1.5px dashed var(--t4);display:grid;place-items:center;flex:none}
+.plus .i{width:9px;height:9px;stroke-width:2}
+.ph{flex:1}
+.ph i{font-style:normal;color:var(--t4);opacity:.75}
+.add.on{padding-top:12px;padding-bottom:12px;background:rgba(255,255,255,.025)}
+.add.on .plus{border-color:var(--ac-line);color:var(--ac)}
+.add.on .ph{color:var(--t1)}
+.parsed{flex-basis:100%;display:flex;align-items:center;gap:6px;padding-left:26px}
+.dest{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--t3)}
+.dest .i{width:12px;height:12px}
+.qa-wrap{width:600px;max-width:100%;margin:64px auto 0}
+.qa-cap{display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:14px;font-size:12px;color:var(--t3)}
+.qa{border-radius:var(--r-win);background:rgba(24,24,29,.80);backdrop-filter:blur(48px) saturate(1.5);border:1px solid rgba(255,255,255,.1);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 30px 80px -10px rgba(0,0,0,.75),0 4px 14px rgba(0,0,0,.4)}
+.qa-in{display:flex;align-items:center;gap:14px;padding:18px 22px 12px 18px;font:400 20px/28px var(--font-d)}
+.qa-in .tile{width:26px;height:26px;flex:none;border-radius:7px;display:grid;place-items:center;background:var(--ac-soft);color:var(--ac)}
+.qa-in .tile .i{width:14px;height:14px;stroke-width:1.8}
+.qa-in mark{padding:1px 4px}
+.qa-in .caret{height:22px;vertical-align:-4px}
+.qa-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 22px 16px 58px}
+.qa-ft{display:flex;align-items:center;gap:14px;height:40px;padding:0 14px 0 18px;border-top:1px solid var(--line);font-size:11.5px;color:var(--t3)}
+.qa-ft .dest{margin:0;color:var(--t2)}
+.qa-ft .sp{flex:1}
+.qa-ft span{display:inline-flex;align-items:center;gap:6px}
+</style>
+</head>
+<body>
+<div class="wall"></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-tmr" viewBox="0 0 16 16"><path d="M2.5 8h8.5M8 5l3 3-3 3M13.5 3.5v9"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.8h11M5.5 2v3M10.5 2v3"/></symbol>
+  <symbol id="i-del" viewBox="0 0 16 16"><path d="M3 4.5h10M6.3 4.5V3h3.4v1.5M4.4 4.5l.6 8.1c.04.5.45.9.95.9h4.1c.5 0 .91-.4.95-.9l.6-8.1"/></symbol>
+  <symbol id="i-rep" viewBox="0 0 16 16"><path d="M2.8 7.2A5.2 5.2 0 0 1 12 4.6M12.6 2.2v2.9H9.7M13.2 8.8A5.2 5.2 0 0 1 4 11.4M3.4 13.8v-2.9h2.9"/></symbol>
+  <symbol id="i-clk" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.2V8l1.9 1.3"/></symbol>
+  <symbol id="i-arr" viewBox="0 0 16 16"><path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></symbol>
+  <symbol id="i-chk" viewBox="0 0 16 16"><path d="M3.5 8.4 6.6 11.3 12.5 4.9"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/></symbol>
+</svg>
+<div class="cap"><b>ГРАФИТ</b>вариант C · тихий минимализм</div>
+<main class="desk">
+  <section class="w">
+    <header class="hd">
+      <div class="ttl"><h2>Сегодня</h2><span>пт, 23 октября</span></div>
+      <div class="cnt"><span class="odb">2</span><span>3</span></div>
+      <button class="ib more"><svg class="i"><use href="#i-more"/></svg></button>
+      <div class="prog" style="--p:25%"><i></i></div>
+    </header>
+    <div class="list">
+      <div class="row hov"><button class="cb"></button><div class="tx"><span>Созвон с Мариной по проекту</span></div><div class="meta next">10:00</div></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Тренировка в зале</span></div><div class="meta"><svg class="i"><use href="#i-rep"/></svg>15:30</div></div>
+      <div class="row done"><button class="cb"></button><div class="tx"><span>Купить корм коту</span></div></div>
+      <div class="row edit"><button class="cb"></button><div class="tx"><span>Забрать посылку — пункт выдачи на Ленина, 14</span><i class="caret"></i></div>
+        <div class="edit-bar">
+          <span class="chip ghost"><svg class="i"><use href="#i-cal"/></svg>Сегодня</span>
+          <span class="chip ghost"><svg class="i"><use href="#i-clk"/></svg>Время</span>
+          <span class="hint"><kbd>↵</kbd>сохранить<kbd>Esc</kbd></span>
+        </div>
+      </div>
+      <div class="grow"></div>
+      <div class="ods">
+        <div class="ods-h">Не успели <span class="n">2</span><button class="lnk">Всё на завтра</button></div>
+        <div class="row od"><button class="cb"></button><div class="body">
+          <div class="tx"><span>Оплатить коммуналку</span></div>
+          <div class="odl"><span>Просрочено · вчера</span><span class="rs"><button class="pill">Сегодня</button><button class="pill">Завтра</button></span></div>
+        </div></div>
+        <div class="row od"><button class="cb"></button><div class="body">
+          <div class="tx"><span>Принять витамины</span></div>
+          <div class="odl"><span>Просрочено · 09:00</span><span class="rs"><button class="pill">Завтра</button></span></div>
+        </div></div>
+      </div>
+    </div>
+    <div class="snk"><svg class="i"><use href="#i-chk"/></svg><b>Купить корм коту</b><button class="undo">Отменить</button><kbd>Ctrl Z</kbd></div>
+    <div class="add"><span class="plus"><svg class="i"><use href="#i-plus"/></svg></span><span class="ph">Новая задача</span><kbd>N</kbd></div>
+  </section>
+  <section class="w">
+    <header class="hd">
+      <div class="ttl"><h2>Без срока</h2><span>когда-нибудь</span></div>
+      <div class="cnt"><span>5</span></div>
+      <button class="ib more"><svg class="i"><use href="#i-more"/></svg></button>
+      <div class="prog"><i></i></div>
+    </header>
+    <div class="list">
+      <div class="row"><button class="cb"></button><div class="tx"><span>Заменить фильтр в кувшине</span></div></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Найти мастера — течёт кран на кухне</span></div></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Выбрать подарок маме</span></div><div class="meta stale">3 нед.</div></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Разобрать фото с отпуска</span></div><div class="meta stale">2 мес.</div></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Посмотреть «Дюну: Часть вторую»</span></div></div>
+    </div>
+    <div class="add on">
+      <span class="plus"><svg class="i"><use href="#i-plus"/></svg></span>
+      <span class="ph">Позвонить в банк <mark>завтра</mark> <mark>в 11</mark><i class="caret"></i></span>
+      <div class="parsed">
+        <span class="chip on"><svg class="i"><use href="#i-cal"/></svg>Завтра · сб, 24 окт</span>
+        <span class="chip on"><svg class="i"><use href="#i-clk"/></svg>11:00</span>
+        <span class="dest"><svg class="i"><use href="#i-arr"/></svg>Предстоящие</span>
+      </div>
+    </div>
+  </section>
+  <section class="w">
+    <header class="hd">
+      <div class="ttl"><h2>Предстоящие</h2><span>неделя</span></div>
+      <div class="cnt"><span>5</span></div>
+      <button class="ib more"><svg class="i"><use href="#i-more"/></svg></button>
+      <div class="prog"><i></i></div>
+    </header>
+    <div class="list">
+      <div class="gh"><b>Завтра</b><span>сб, 24 окт</span><i></i></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Купить цветы Ане</span></div><div class="meta">12:00</div></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Забрать куртку из химчистки</span></div></div>
+      <div class="gh"><b>Понедельник</b><span>26 окт</span><i></i><em>через 3 дня</em></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Планёрка</span></div><div class="meta"><svg class="i"><use href="#i-rep"/></svg>10:00</div></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Сдать показания счётчиков</span></div></div>
+      <div class="gh"><b>Пятница</b><span>30 окт</span><i></i><em>через неделю</em></div>
+      <div class="row"><button class="cb"></button><div class="tx"><span>Отправить отчёт за октябрь</span></div><div class="meta">18:00</div></div>
+    </div>
+    <div class="add"><span class="plus"><svg class="i"><use href="#i-plus"/></svg></span><span class="ph">Новая задача <i>· «в пт в 15»</i></span></div>
+  </section>
+</main>
+<div class="qa-wrap">
+  <div class="qa-cap"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Space</kbd>&nbsp;быстрое добавление — из любого окна</div>
+  <div class="qa">
+    <div class="qa-in"><span class="tile"><svg class="i"><use href="#i-plus"/></svg></span><div>Полить цветы <mark>каждый пн</mark> <mark>в 9</mark><i class="caret"></i></div></div>
+    <div class="qa-chips">
+      <span class="chip on"><svg class="i"><use href="#i-rep"/></svg>Каждый пн</span>
+      <span class="chip on"><svg class="i"><use href="#i-clk"/></svg>09:00</span>
+      <span class="chip"><svg class="i"><use href="#i-cal"/></svg>Первый раз — пн, 26 окт</span>
+    </div>
+    <div class="qa-ft"><span class="dest"><svg class="i"><use href="#i-arr"/></svg>Предстоящие</span><span class="sp"></span><span><kbd>↵</kbd>добавить</span><span><kbd>Esc</kbd></span></div>
+  </div>
+</div>
+<script>
+const CK='<svg viewBox="0 0 10 10"><path d="M2.2 5.3 4.2 7.2 7.9 3.1"/></svg>';
+const IC=n=>`<svg class="i"><use href="#i-${n}"/></svg>`;
+const ACTS=`<div class="acts"><button class="ib" title="На завтра">${IC('tmr')}</button><button class="ib" title="Дата…">${IC('cal')}</button><button class="ib del" title="Удалить">${IC('del')}</button></div>`;
+document.querySelectorAll('.cb').forEach(b=>{b.innerHTML=CK;b.onclick=()=>b.closest('.row').classList.toggle('done')});
+document.querySelectorAll('.row:not(.od):not(.edit)').forEach(r=>{const m=r.querySelector('.meta');m?m.insertAdjacentHTML('beforebegin',ACTS):r.insertAdjacentHTML('beforeend',ACTS);});
+</script>
+</body>
+</html>

@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Линза — виджеты задач</title>
+<style>
+:root{
+  interpolate-size:allow-keywords;
+  --ink-1:rgba(255,255,255,.96);--ink-2:rgba(255,255,255,.70);--ink-3:rgba(255,255,255,.46);--hair:rgba(255,255,255,.10);
+  --accent:#9DABFF;--accent-hi:#C4CCFF;--accent-fill:rgba(157,171,255,.18);--accent-line:rgba(157,171,255,.55);
+  --late:#FFA45E;--late-hi:#FFC390;
+  --tint:34,32,46;--tint-a:.42;--amb:255,64,112;
+  --r-win:28px;--r-pop:32px;--r-panel:20px;--r-row:14px;--pill:999px;
+  --sh:0 22px 44px -14px rgba(0,0,0,.6),0 6px 14px -6px rgba(0,0,0,.45),0 0 0 .5px rgba(0,0,0,.45);
+  --spring:linear(0,.006,.025 2.8%,.101 6.1%,.539 18.9%,.721 25.3%,.849 31.5%,.937 38.1%,.968 41.8%,.991 45.7%,1.006 50.1%,1.015 55%,1.017 63.9%,1.001 85.9%,1);
+  --out:cubic-bezier(.22,1,.36,1);--t1:120ms;--t2:220ms;--t3:420ms;
+  --fd:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+  --ft:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --fs:"Segoe UI Variable Small","Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;background:#000;color:var(--ink-1);font:400 13.5px/1.3 var(--ft);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
+.wall{position:fixed;inset:0;background:#000 url(wallpaper.png) center/cover no-repeat;pointer-events:none}
+.fx{position:absolute;width:0;height:0}
+svg.i{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.win{position:absolute;display:flex;flex-direction:column;border-radius:var(--r-win);overflow:hidden;
+  backdrop-filter:blur(22px) saturate(1.7);
+  background:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.015) 30%,rgba(255,255,255,0) 70%,rgba(255,255,255,.03)),rgba(var(--tint),var(--tint-a));
+  box-shadow:var(--sh),inset 0 1px 0 rgba(255,255,255,.20),inset 0 0 0 1px rgba(255,255,255,.04),inset 0 -22px 34px -26px rgba(var(--amb),.35),inset 0 0 14px rgba(255,255,255,.03);
+  text-shadow:0 1px 2px rgba(0,0,0,.30)}
+.win::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:radial-gradient(130% 55% at 0 0,rgba(255,255,255,.09),transparent 50%),radial-gradient(220px circle at var(--mx,-999px) var(--my,-999px),rgba(255,255,255,.06),transparent 70%)}
+.win::after{content:"";position:absolute;inset:0;z-index:2;border-radius:inherit;padding:1px;pointer-events:none;
+  background:conic-gradient(rgba(255,255,255,.34),rgba(255,255,255,.10) 12%,rgba(255,255,255,.05) 25%,rgba(var(--amb),.42) 37%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.04) 62%,rgba(255,255,255,.16) 75%,rgba(255,255,255,.72) 87%,rgba(255,255,255,.34));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.win>*{position:relative;z-index:1}
+#today{left:calc(50% - 560px);top:calc(50% - 330px);width:350px;height:510px}
+#nodate{left:calc(50% - 170px);top:calc(50% - 330px);width:340px;height:390px}
+#upcoming{left:calc(50% + 210px);top:calc(50% - 330px);width:350px;height:470px}
+#quick{left:calc(50% - 300px);top:calc(50% + 232px);width:600px;border-radius:var(--r-pop);animation:appear var(--t3) var(--spring) both;
+  --sh:0 40px 80px -24px rgba(0,0,0,.75),0 14px 28px -12px rgba(0,0,0,.55),0 0 0 .5px rgba(0,0,0,.5)}
+@keyframes appear{from{opacity:0;transform:translateY(10px) scale(.965)}}
+.hd{display:flex;align-items:center;gap:8px;padding:16px 18px 8px 20px;user-select:none}
+.hd h1{font:600 18px/1.25 var(--fd);letter-spacing:-.01em}
+.cnt{font:600 11px/18px var(--fs);min-width:20px;padding:0 6px;border-radius:var(--pill);text-align:center;color:var(--ink-2);background:rgba(255,255,255,.10);box-shadow:inset 0 .5px 0 rgba(255,255,255,.3);font-variant-numeric:tabular-nums}
+.hd small{margin-left:auto;font:400 12px var(--fs);color:var(--ink-3)}
+.list{flex:1;min-height:0;overflow:auto;padding:2px 8px 8px;scrollbar-width:none}
+.row{position:relative;display:flex;align-items:center;gap:12px;min-height:38px;padding:7px 10px 7px 12px;border-radius:var(--r-row);transition:background var(--t1),box-shadow var(--t1)}
+.row:hover,.row.hov{background:rgba(255,255,255,.07);box-shadow:inset 0 .5px 0 rgba(255,255,255,.18),inset 0 0 0 .5px rgba(255,255,255,.05)}
+.tx{flex:1;min-width:0}
+.t{display:inline-block;max-width:100%;vertical-align:top;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+svg.rp{width:12px;height:12px;margin:3px 0 0 6px;vertical-align:top;color:var(--ink-3)}
+.sub{font:400 11.5px/1.35 var(--fs);color:var(--ink-3)}
+.time{flex:none;font:500 12.5px var(--fs);color:var(--ink-2);font-variant-numeric:tabular-nums;transition:opacity var(--t1)}
+.next::before{content:"";position:absolute;left:3px;top:12px;bottom:12px;width:2.5px;border-radius:2px;background:var(--accent);box-shadow:0 0 8px rgba(157,171,255,.75)}
+.next .time{padding:2px 8px;border-radius:var(--pill);color:var(--accent-hi);background:var(--accent-fill);box-shadow:inset 0 .5px 0 rgba(255,255,255,.3),inset 0 0 0 .5px rgba(157,171,255,.3)}
+.next .sub{color:var(--accent-hi);opacity:.8}
+.acts{position:absolute;right:8px;top:50%;display:flex;gap:4px;opacity:0;pointer-events:none;transform:translate(6px,-50%);transition:opacity var(--t1),transform var(--t2) var(--spring)}
+.row:hover .acts,.row.hov .acts{opacity:1;pointer-events:auto;transform:translate(0,-50%)}
+.row:hover .time,.row.hov .time{opacity:0}
+.ib{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:26px;min-width:26px;padding:0 7px;border-radius:var(--pill);font:500 11.5px var(--fs);color:var(--ink-1);background:rgba(255,255,255,.11);backdrop-filter:blur(8px) saturate(1.5);
+  box-shadow:inset 0 .5px 0 rgba(255,255,255,.38),inset 0 -.5px 0 rgba(0,0,0,.25),0 2px 8px -2px rgba(0,0,0,.45);transition:background var(--t1),transform var(--t2) var(--spring)}
+.ib:hover{background:rgba(255,255,255,.18)}.ib:active{transform:scale(.94)}.ib.del:hover{color:var(--late-hi)}
+.ck{flex:none;position:relative;width:18px;height:18px;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.16),rgba(255,255,255,.02) 62%);
+  box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.45),0 1px 2px rgba(0,0,0,.3);transition:box-shadow var(--t1),background var(--t1)}
+.ck:hover{box-shadow:inset 0 0 0 1.5px var(--accent),0 0 0 4px rgba(157,171,255,.16)}
+.ck::after{content:"";position:absolute;inset:0;background:#141838;clip-path:inset(0 100% 0 0);transition:clip-path 240ms var(--out) 80ms;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M5 9.4l2.6 2.6L13 6.3' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/18px no-repeat}
+.done .ck{background:radial-gradient(circle at 35% 28%,#E4E8FF,var(--accent) 52%,#7383F2);animation:pop var(--t3) var(--spring);box-shadow:inset 0 .5px 0 rgba(255,255,255,.8),0 0 0 .5px rgba(20,24,60,.3),0 2px 10px rgba(120,136,255,.5)}
+.done .ck::after{clip-path:inset(0)}
+@keyframes pop{from{transform:scale(.7)}}
+.done .t{color:var(--ink-3);text-shadow:none;background:linear-gradient(currentColor,currentColor) 0 56%/100% 1.2px no-repeat;animation:strike 280ms var(--out)}
+@keyframes strike{from{background-size:0 1.2px}}
+.done .time,.done .sub,.done .rp{opacity:.45}
+.gone{overflow:hidden;animation:gone 300ms var(--out) forwards}
+@keyframes gone{to{height:0;min-height:0;padding-block:0;opacity:0}}
+.row.edit{background:rgba(6,6,14,.30);box-shadow:inset 0 0 0 1px var(--accent-line),0 0 0 3px rgba(157,171,255,.13)}
+.edit .t{overflow:visible}
+.caret{display:inline-block;width:1.5px;height:1.05em;margin-left:1px;vertical-align:-.15em;border-radius:1px;background:var(--accent-hi);animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.late{margin-top:10px;padding:6px;border-radius:var(--r-panel);background:linear-gradient(180deg,rgba(255,164,94,.13),rgba(255,164,94,.04)),rgba(12,6,4,.24);
+  box-shadow:inset 0 .5px 0 rgba(255,205,165,.38),inset 0 0 0 .5px rgba(255,164,94,.18),inset 0 -10px 20px -14px rgba(255,164,94,.28)}
+.late .row{padding-right:6px}
+.late .ck{box-shadow:inset 0 0 0 1.5px rgba(255,180,120,.6),0 1px 2px rgba(0,0,0,.3)}
+.late .sub{color:var(--late-hi)}
+.mv{display:flex;gap:4px;flex:none}
+.mv .ib{height:24px;padding:0 9px;backdrop-filter:none;background:rgba(255,255,255,.09)}
+.mv .go{color:var(--late-hi);background:rgba(255,164,94,.18)}
+.win>.snack{position:absolute;z-index:5;left:12px;right:12px;bottom:58px}
+.snack{display:flex;align-items:center;gap:10px;height:40px;padding:0 5px 0 12px;border-radius:var(--pill);font:400 12.5px var(--ft);background:rgba(30,28,44,.58);backdrop-filter:blur(14px) saturate(1.6) brightness(1.1);animation:rise var(--t3) var(--spring);
+  box-shadow:0 12px 28px -8px rgba(0,0,0,.65),inset 0 .5px 0 rgba(255,255,255,.4),inset 0 0 0 .5px rgba(255,255,255,.1)}
+.snack[hidden]{display:none}
+.snack span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink-2)}
+.snack b{font-weight:500;color:var(--ink-1)}
+.undo{height:30px;padding:0 14px;border-radius:var(--pill);font:600 12px var(--fs);color:var(--accent-hi);background:var(--accent-fill);box-shadow:inset 0 .5px 0 rgba(255,255,255,.3)}
+.ring{width:18px;height:18px;flex:none;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:2;stroke-linecap:round}
+.ring .tr{stroke:rgba(255,255,255,.14)}.ring .pg{stroke:var(--accent);stroke-dasharray:44;animation:drain 5s linear forwards}
+.snack.static .pg{animation:none;stroke-dashoffset:17}
+@keyframes drain{to{stroke-dashoffset:44}}
+@keyframes rise{from{opacity:0;transform:translateY(10px) scale(.96)}}
+.parse{display:flex;align-items:center;gap:6px;padding:4px 14px 8px 16px}
+.chip,.dest{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px 0 7px;border-radius:var(--pill);font:500 11.5px var(--fs);white-space:nowrap;font-variant-numeric:tabular-nums}
+.chip{color:var(--accent-hi);background:var(--accent-fill);box-shadow:inset 0 .5px 0 rgba(255,255,255,.28),inset 0 0 0 .5px rgba(157,171,255,.28)}
+.chip svg.i,.dest svg.i{width:12px;height:12px}
+.dest{margin-left:auto;padding:0 10px 0 8px;color:var(--ink-2);background:rgba(255,255,255,.08);box-shadow:inset 0 .5px 0 rgba(255,255,255,.22)}
+.dest b{font-weight:600;color:var(--ink-1)}
+.add{display:flex;align-items:center;gap:10px;min-height:40px;margin:0 10px 10px;padding:0 14px 0 13px;border-radius:var(--pill);color:var(--ink-3);background:rgba(255,255,255,.055);
+  box-shadow:inset 0 .5px 0 rgba(255,255,255,.22),inset 0 0 0 .5px rgba(255,255,255,.07),inset 0 -.5px 0 rgba(0,0,0,.3)}
+.add.typing{color:var(--ink-1);background:rgba(6,6,14,.30);box-shadow:inset 0 0 0 1px var(--accent-line),0 0 0 3px rgba(157,171,255,.13)}
+.add .f{flex:1;min-width:0;white-space:nowrap;overflow:hidden}
+mark{background:none;color:var(--accent-hi);box-shadow:inset 0 -1.5px 0 var(--accent-line)}
+.day{display:flex;align-items:baseline;gap:8px;margin:0 4px;padding:12px 8px 5px;font:600 12.5px var(--fs)}
+.day:not(:first-child){margin-top:6px;border-top:.5px solid var(--hair)}
+.day span{font-weight:400;color:var(--ink-3)}
+.q{display:flex;align-items:center;gap:14px;padding:18px 22px 12px 18px;font:400 21px/1.3 var(--fd);letter-spacing:-.01em}
+.qi{display:grid;place-items:center;width:30px;height:30px;flex:none;border-radius:50%;color:#151a40;background:radial-gradient(circle at 35% 28%,#E4E8FF,var(--accent) 55%,#7383F2);box-shadow:inset 0 .5px 0 rgba(255,255,255,.8),0 3px 12px rgba(120,136,255,.45)}
+.qi svg.i{width:16px;height:16px;stroke-width:2}
+.qm{display:flex;align-items:center;gap:6px;padding:0 18px 14px 62px}
+.qk{display:flex;align-items:center;gap:6px;padding:10px 18px 12px 20px;border-top:.5px solid var(--hair);font:400 11.5px var(--fs);color:var(--ink-3)}
+.qk .sp{flex:1}
+kbd{font:500 10.5px/1 "Cascadia Mono","Cascadia Code",Consolas,monospace;padding:3px 6px 4px;border-radius:6px;color:var(--ink-2);background:rgba(255,255,255,.08);box-shadow:inset 0 .5px 0 rgba(255,255,255,.25),inset 0 -1px 0 rgba(0,0,0,.35)}
+</style>
+</head>
+<body>
+<div class="wall"></div>
+<svg class="fx" aria-hidden="true"><defs>
+  <filter id="lens-tpl" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+    <feImage x="0" y="0" preserveAspectRatio="none" result="map"/>
+    <feGaussianBlur in="SourceGraphic" stdDeviation=".7" result="src"/>
+    <feDisplacementMap data-k="r" in="src" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G" result="dR"/>
+    <feDisplacementMap data-k="gb" in="src" in2="map" scale="36" xChannelSelector="R" yChannelSelector="G" result="dGB"/>
+    <feColorMatrix in="dR" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r"/>
+    <feColorMatrix in="dGB" values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" result="gb"/>
+    <feComposite in="r" in2="gb" operator="arithmetic" k2="1" k3="1" result="lensed"/>
+    <feGaussianBlur in="lensed" stdDeviation="16" edgeMode="duplicate" result="frost"/>
+    <feColorMatrix in="frost" type="saturate" values="1.7" result="frostS"/>
+    <feColorMatrix in="lensed" type="saturate" values="1.35" result="rimS"/>
+    <feColorMatrix in="map" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 1 0 0" result="mask"/>
+    <feComposite in="rimS" in2="mask" operator="in" result="rim"/>
+    <feComposite in="rim" in2="frostS" operator="over"/>
+  </filter>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="2.5"/><path d="M2.5 7h11M5.5 2v3M10.5 2v3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75"/><path d="M8 5v3.2l2 1.3"/></symbol>
+  <symbol id="i-rep" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.8v2.6h-2.6"/></symbol>
+  <symbol id="i-next" viewBox="0 0 16 16"><path d="M3 8h9.5M9 4.5 12.5 8 9 11.5"/></symbol>
+  <symbol id="i-del" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.6 4.5l.6 8.5h5.6l.6-8.5"/></symbol>
+</defs></svg>
+
+<section class="win" id="today" data-bezel="28" data-scale="40">
+  <header class="hd"><h1>Сегодня</h1><span class="cnt">4</span><small>пт, 23 октября</small></header>
+  <div class="list">
+    <div class="row next"><button class="ck"></button><div class="tx"><span class="t">Созвон с командой</span><div class="sub">через 18 мин</div></div><span class="time">10:00</span></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Тренировка</span><svg class="i rp"><use href="#i-rep"/></svg><div class="sub">пн, ср, пт</div></div><span class="time">15:30</span></div>
+    <div class="row hov"><button class="ck"></button><div class="tx"><span class="t">Забрать посылку с почты</span></div></div>
+    <div class="row edit"><button class="ck"></button><div class="tx"><span class="t">Купить подарок маме<i class="caret"></i></span><div class="sub">Enter — сохранить · Esc — отмена</div></div></div>
+    <div class="row done"><button class="ck"></button><div class="tx"><span class="t">Оплатить интернет</span></div></div>
+    <div class="late">
+      <div class="row"><button class="ck"></button><div class="tx"><span class="t">Отправить отчёт</span><div class="sub">Просрочено · вчера</div></div><div class="mv"><button class="ib go">Сегодня</button><button class="ib">Завтра</button></div></div>
+      <div class="row"><button class="ck"></button><div class="tx"><span class="t">Записаться к стоматологу</span><div class="sub">Просрочено · 09:00</div></div><div class="mv"><button class="ib">Завтра</button></div></div>
+    </div>
+  </div>
+  <div class="snack static"><svg class="ring" viewBox="0 0 20 20"><circle class="tr" cx="10" cy="10" r="7"/><circle class="pg" cx="10" cy="10" r="7"/></svg><span>Выполнено: <b>Оплатить интернет</b></span><button class="undo">Отменить</button></div>
+  <div class="add"><svg class="i"><use href="#i-plus"/></svg><span class="f">Новая задача</span></div>
+</section>
+
+<section class="win" id="nodate" data-bezel="28" data-scale="40">
+  <header class="hd"><h1>Без срока</h1><span class="cnt">5</span><small>когда-нибудь</small></header>
+  <div class="list">
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Разобрать фото с отпуска</span></div></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Поменять резину на зимнюю</span></div></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Почитать про налоговый вычет</span></div></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Найти мастера — течёт кран</span></div></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Записаться на испанский</span></div></div>
+  </div>
+  <div class="parse"><span class="chip"><svg class="i"><use href="#i-cal"/></svg>сб, 24 окт</span><span class="chip"><svg class="i"><use href="#i-clock"/></svg>11:00</span><span class="dest"><svg class="i"><use href="#i-next"/></svg><b>Предстоящие</b></span></div>
+  <div class="add typing"><svg class="i"><use href="#i-plus"/></svg><span class="f">Позвонить в банк <mark>завтра</mark> <mark>в 11</mark><i class="caret"></i></span></div>
+</section>
+
+<section class="win" id="upcoming" data-bezel="28" data-scale="40">
+  <header class="hd"><h1>Предстоящие</h1><span class="cnt">6</span><small>7 дней</small></header>
+  <div class="list">
+    <div class="day">Завтра<span>сб, 24 окт</span></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Обед с Олей</span></div><span class="time">12:00</span></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Дача: закрыть сезон</span></div></div>
+    <div class="day">Понедельник<span>26 окт · через 3 дня</span></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Планёрка</span><svg class="i rp"><use href="#i-rep"/></svg><div class="sub">каждый пн</div></div><span class="time">10:00</span></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Передать показания счётчиков</span></div></div>
+    <div class="day">Четверг<span>29 окт · через 6 дней</span></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Театр — «Вишнёвый сад»</span></div><span class="time">19:00</span></div>
+    <div class="row"><button class="ck"></button><div class="tx"><span class="t">Продлить ОСАГО</span></div></div>
+  </div>
+  <div class="add"><svg class="i"><use href="#i-plus"/></svg><span class="f">Новая задача</span></div>
+</section>
+
+<section class="win" id="quick" data-bezel="30" data-scale="46">
+  <div class="q"><span class="qi"><svg class="i"><use href="#i-plus"/></svg></span><div>Полить цветы <mark>каждую пт</mark> <mark>в 19</mark><i class="caret"></i></div></div>
+  <div class="qm"><span class="chip"><svg class="i"><use href="#i-rep"/></svg>по пятницам</span><span class="chip"><svg class="i"><use href="#i-cal"/></svg>сегодня, 23 окт</span><span class="chip"><svg class="i"><use href="#i-clock"/></svg>19:00</span><span class="dest"><svg class="i"><use href="#i-next"/></svg><b>Сегодня</b></span></div>
+  <div class="qk"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Space</kbd><span class="sp"></span><kbd>Enter</kbd>добавить<kbd>Esc</kbd>закрыть</div>
+</section>
+
+<script>
+const $=(s,r=document)=>[...r.querySelectorAll(s)], wins=$('.win'), tpl=document.getElementById('lens-tpl');
+function lensMap(w,h,r,bz){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const g=c.getContext('2d'),im=g.createImageData(w,h),d=im.data;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const px=x+.5-w/2,py=y+.5-h/2,qx=Math.abs(px)-(w/2-r),qy=Math.abs(py)-(h/2-r);
+    let dist,nx=0,ny=0;
+    if(qx>0&&qy>0){const l=Math.hypot(qx,qy);dist=r-l;nx=qx/l;ny=qy/l}
+    else if(qx>qy){dist=r-qx;nx=1}else{dist=r-qy;ny=1}
+    const t=dist<0?0:Math.max(0,1-dist/bz),m=t*t,k=Math.min(1,Math.max(0,(t-.35)/.45)),i=(y*w+x)*4;
+    d[i]=128-Math.sign(px)*nx*m*127;d[i+1]=128-Math.sign(py)*ny*m*127;d[i+2]=k*k*(3-2*k)*255;d[i+3]=255;
+  }
+  g.putImageData(im,0,0);return c.toDataURL();
+}
+function lens(el,n){
+  const w=el.offsetWidth,h=el.offsetHeight,r=parseFloat(getComputedStyle(el).borderTopLeftRadius),bz=+el.dataset.bezel||28,sc=+el.dataset.scale||40,id='lens-'+n;
+  let f=document.getElementById(id);
+  if(!f){f=tpl.cloneNode(true);f.id=id;tpl.after(f)}
+  const fi=f.querySelector('feImage');
+  fi.setAttribute('href',lensMap(w,h,r,bz));fi.setAttribute('width',w);fi.setAttribute('height',h);
+  f.querySelector('[data-k=r]').setAttribute('scale',sc);
+  f.querySelector('[data-k=gb]').setAttribute('scale',(sc*.9).toFixed(1));
+  el.style.backdropFilter='url(#'+id+')';
+}
+const wp=new Image();
+function adapt(el){
+  try{
+    const W=wp.naturalWidth,H=wp.naturalHeight,s=Math.max(innerWidth/W,innerHeight/H),ox=(innerWidth-W*s)/2,oy=(innerHeight-H*s)/2,
+          b=el.getBoundingClientRect(),c=document.createElement('canvas');c.width=c.height=24;
+    const g=c.getContext('2d');g.drawImage(wp,(b.left-ox)/s,(b.top-oy)/s,b.width/s,b.height/s,0,0,24,24);
+    const d=g.getImageData(0,0,24,24).data,L=[];let R=0,G=0,B=0;
+    for(let i=0;i<d.length;i+=4){L.push((.2126*d[i]+.7152*d[i+1]+.0722*d[i+2])/255);R+=d[i];G+=d[i+1];B+=d[i+2]}
+    L.sort((a,b)=>a-b);const p90=L[Math.floor(L.length*.9)],mx=Math.max(R,G,B);
+    el.style.setProperty('--tint-a',Math.min(.6,.3+p90*.75).toFixed(3));
+    el.style.setProperty('--amb',mx<576*14?'150,150,175':[R,G,B].map(v=>Math.round(v/mx*255)).join(','));
+  }catch(e){}
+}
+function build(){wins.forEach(lens);if(wp.complete&&wp.naturalWidth)wins.forEach(adapt)}
+wp.onload=()=>wins.forEach(adapt);wp.src='wallpaper.png';build();
+let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(build,150)});
+wins.forEach(w=>{
+  w.addEventListener('pointermove',e=>{const b=w.getBoundingClientRect();w.style.setProperty('--mx',e.clientX-b.left+'px');w.style.setProperty('--my',e.clientY-b.top+'px')});
+  w.addEventListener('pointerleave',()=>{w.style.removeProperty('--mx');w.style.removeProperty('--my')});
+  w.addEventListener('pointerenter',()=>$('.hov').forEach(r=>r.classList.remove('hov')),{once:true});
+});
+const ACTS='<div class="acts"><button class="ib" title="На завтра"><svg class="i"><use href="#i-next"/></svg>Завтра</button><button class="ib" title="Дата"><svg class="i"><use href="#i-cal"/></svg></button><button class="ib del" title="Удалить"><svg class="i"><use href="#i-del"/></svg></button></div>';
+$('.row').forEach(r=>{if(!r.closest('.late')&&!r.matches('.edit'))r.insertAdjacentHTML('beforeend',ACTS)});
+document.addEventListener('click',e=>{const ck=e.target.closest('.ck');if(ck)ck.closest('.row').classList.toggle('done')});
+</script>
+</body>
+</html>

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Афиша — виджеты задач</title>
+<style>
+:root{
+  --ink:#0B0B0F; --shell:rgba(15,15,20,.9); --raise:#1D1D24;
+  --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.16);
+  --t1:#F4F1EA; --t2:rgba(244,241,234,.64); --t3:rgba(244,241,234,.40); --t4:rgba(244,241,234,.14);
+  --paper:#F2EFE8;
+  --today:#C6FF2E; --nodate:#B49BFF; --soon:#3CD6FF; --late:#FF3B5C;
+  --r-win:8px; --r-row:6px; --r-chip:4px;
+  --f-disp:"Bahnschrift Condensed","Bahnschrift","Arial Narrow",sans-serif;
+  --f-ui:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  --f-big:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",sans-serif;
+  --f-ico:"Segoe Fluent Icons","Segoe MDL2 Assets";
+  --e-out:cubic-bezier(.2,.8,.2,1); --e-spring:cubic-bezier(.34,1.56,.64,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+body{min-width:1240px;min-height:100vh;background:#050507;color:var(--t1);font:14px/20px var(--f-ui);-webkit-font-smoothing:antialiased}
+.wall{position:fixed;inset:0;overflow:hidden;background:
+  radial-gradient(36% 44% at 64% 44%,rgba(255,20,120,.32),transparent 70%),
+  radial-gradient(70% 60% at 0% 100%,#160616,transparent 70%),#050507}
+.wall::after{content:"";position:absolute;left:64%;top:44%;width:240px;height:240px;margin:-120px 0 0 -120px;
+  transform:rotate(45deg);border:3px solid #ff4fb8;border-radius:8px;
+  box-shadow:0 0 14px #ff2d95,0 0 48px #ff1f6a,0 0 140px rgba(255,31,106,.6),inset 0 0 24px rgba(255,45,149,.7)}
+.cap{position:relative;padding:22px 40px 0;font-size:12px;color:var(--t3);letter-spacing:.03em}
+.cap b{font:700 13px var(--f-disp);letter-spacing:.26em;color:var(--t1);margin-right:6px}
+.stage{position:relative;display:flex;gap:24px;padding:18px 40px 0;justify-content:center;align-items:flex-start}
+.w{--a:var(--today);position:relative;width:360px;height:590px;display:flex;flex-direction:column;
+  background:var(--shell);backdrop-filter:blur(28px) saturate(1.3);border-radius:var(--r-win);overflow:hidden;
+  box-shadow:inset 0 0 0 1px var(--line),0 28px 56px -18px rgba(0,0,0,.75)}
+.w::before{content:"";position:absolute;left:0;right:0;top:0;height:4px;background:var(--a);z-index:2}
+.w.td::before{background:linear-gradient(90deg,var(--today) 66.6%,var(--late) 66.6%)}
+.w.nd{--a:var(--nodate);height:450px} .w.up{--a:var(--soon)}
+.more{position:absolute;top:14px;right:12px;font:14px var(--f-ico);color:var(--t3)}
+.hd{display:flex;align-items:flex-end;gap:14px;min-height:100px;padding:22px 18px 14px;border-bottom:1px solid var(--line)}
+.big{font:700 76px/.74 var(--f-disp);font-stretch:75%;font-variation-settings:"wdth" 75;letter-spacing:-.03em;
+  color:var(--a);font-variant-numeric:tabular-nums;min-width:40px}
+.hm{flex:1;min-width:0}
+.ttl{font:700 15px/18px var(--f-disp);letter-spacing:.2em;text-transform:uppercase}
+.sub{font-size:12px;line-height:16px;color:var(--t2);margin-top:2px}
+.sm{margin-top:6px}
+.seg{display:flex;gap:3px;margin-top:9px}
+.seg i{flex:1;height:5px;border-radius:1px;background:var(--t4)}
+.seg .d,.seg .s{background:var(--a)} .seg .l{background:var(--late)}
+.wkl{display:flex;gap:3px;margin-top:4px}
+.wkl span{flex:1;text-align:center;font:700 9px/12px var(--f-disp);letter-spacing:.1em;color:var(--t3);text-transform:uppercase}
+.wkl .s{color:var(--a)}
+.list{flex:1;overflow:hidden;padding:6px 8px 0}
+.now{display:flex;align-items:center;gap:8px;padding:4px 10px 2px;font:700 10px/14px var(--f-disp);letter-spacing:.18em;color:var(--a)}
+.now::after{content:"";flex:1;height:1px;background:var(--a);opacity:.45}
+.row{position:relative;display:grid;grid-template-columns:18px 40px 1fr;column-gap:10px;padding:9px 10px;border-radius:var(--r-row);transition:background .12s var(--e-out)}
+.nd .row,.row.late{grid-template-columns:18px 1fr auto}
+.row:hover,.row.hov{background:var(--raise)}
+.row.hov::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:2px;background:var(--a)}
+.cb{width:18px;height:18px;margin-top:1px;border:1.5px solid var(--t3);border-radius:4px;display:grid;place-items:center;
+  font:10px var(--f-ico);color:transparent;transition:border-color .12s}
+.row:hover .cb,.row.hov .cb{border-color:var(--a)}
+.tm{font:600 16px/20px var(--f-disp);font-variant-numeric:tabular-nums;color:var(--a);letter-spacing:.02em}
+.tm.ghost{opacity:.45}
+.tx{min-width:0;overflow-wrap:anywhere}
+.mt{display:flex;align-items:center;gap:6px;margin-top:2px;font-size:12px;line-height:16px;color:var(--t2)}
+.mt i,.chip i,.tb i,.snack i{font:11px var(--f-ico);font-style:normal}
+.ac{color:var(--a)} .dim{color:var(--t3)}
+.acts{position:absolute;right:6px;top:6px;display:flex;gap:2px;padding-left:30px;
+  background:linear-gradient(90deg,transparent,var(--raise) 28px);opacity:0;transition:opacity .12s}
+.row:hover .acts,.row.hov .acts{opacity:1}
+.ib,.tb{height:26px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--t2)}
+.ib{width:26px;font:13px var(--f-ico)}
+.tb{gap:5px;padding:0 9px;font:600 12px var(--f-ui);color:var(--t1);background:rgba(255,255,255,.08)}
+.ib:hover,.tb:hover{background:var(--line-2);color:var(--t1)} .ib.del:hover{color:var(--late)}
+.row.ed{background:var(--raise);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--a) 55%,transparent)}
+.ein{border-bottom:2px solid var(--a);padding-bottom:4px}
+.tok{color:var(--a);background:color-mix(in srgb,var(--a) 15%,transparent);border-radius:3px;padding:0 3px}
+.caret{display:inline-block;width:2px;height:18px;margin-left:1px;vertical-align:-4px;background:var(--a);animation:blink 1.06s steps(1) infinite}
+.chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.chip{--c:var(--a);height:22px;display:inline-flex;align-items:center;gap:5px;padding:0 8px;border-radius:var(--r-chip);
+  font:600 12px/1 var(--f-ui);color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 38%,transparent);animation:chipIn .16s var(--e-out) backwards}
+.chip.rt{background:var(--c);color:var(--ink);box-shadow:none;font:700 11px/1 var(--f-disp);letter-spacing:.12em;text-transform:uppercase}
+.hint{font-size:11px;line-height:14px;color:var(--t3)}
+.k{display:inline-block;font:600 10px/15px var(--f-ui);padding:0 5px;border-radius:3px;box-shadow:inset 0 0 0 1px var(--line-2);color:var(--t2)}
+.done .tx{color:var(--t3)}
+.row.done{background:linear-gradient(90deg,color-mix(in srgb,var(--a) 13%,transparent),transparent 75%)}
+.done .cb{background:var(--a);border-color:var(--a);color:var(--ink);animation:pop .36s var(--e-spring)}
+.st{position:relative}
+.st::after{content:"";position:absolute;left:-2px;right:-2px;top:52%;height:1.5px;background:var(--a);
+  transform-origin:left;animation:strike .28s .06s var(--e-out) backwards}
+.od{margin-top:10px}
+.odh{display:flex;align-items:center;gap:8px;padding:8px 10px 6px;font:700 12px/16px var(--f-disp);letter-spacing:.18em;text-transform:uppercase;color:var(--late)}
+.odh .n{padding:0 6px;border-radius:3px;background:var(--late);color:var(--ink);letter-spacing:0}
+.odh::after{content:"";flex:1;height:7px;background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--late) 55%,transparent) 0 2px,transparent 2px 6px)}
+.row.late{align-items:center;margin-bottom:4px;background:color-mix(in srgb,var(--late) 8%,transparent)}
+.row.late .cb{border-color:var(--late);align-self:start}
+.lt{color:var(--late);font-weight:600}
+.rs{display:flex;gap:4px}
+.pill{height:26px;padding:0 8px;border-radius:4px;font:700 11px/26px var(--f-disp);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--t1);box-shadow:inset 0 0 0 1px var(--line-2)}
+.pill.p{background:var(--today);color:var(--ink);box-shadow:none}
+.snack{position:relative;overflow:hidden;display:flex;align-items:center;gap:10px;margin:8px 10px 0;padding:9px 12px 11px;border-radius:6px;
+  background:var(--paper);color:var(--ink);box-shadow:0 12px 28px -10px rgba(0,0,0,.7)}
+.snack .s1{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snack b{font:700 12px var(--f-disp);letter-spacing:.12em;text-transform:uppercase}
+.undo{font:700 12px/18px var(--f-disp);letter-spacing:.14em;text-transform:uppercase;border-bottom:2px solid var(--ink)}
+.snack::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--ink);transform-origin:left;animation:drain 5s linear infinite}
+.add{padding:10px 10px 12px;border-top:1px solid var(--line);margin-top:8px}
+.ai{display:flex;align-items:center;gap:10px;min-height:38px;padding:8px 10px;border-radius:6px;color:var(--t3);cursor:text}
+.ai .ex{margin-left:auto;font-size:12px}
+.pl{flex:none;width:20px;height:20px;border-radius:4px;display:grid;place-items:center;background:var(--a);color:var(--ink);font:10px var(--f-ico)}
+.add.on .ai{background:var(--raise);color:var(--t1);box-shadow:inset 0 0 0 1px var(--a)}
+.ind{padding-left:40px} .add .hint{margin-top:6px}
+.gh{display:flex;align-items:center;gap:10px;padding:12px 10px 6px;border-top:1px solid var(--line);margin-top:4px}
+.gh:first-child{border-top:0;margin-top:0}
+.dnum{font:700 34px/28px var(--f-disp);font-stretch:75%;letter-spacing:-.02em;min-width:28px}
+.dl{font:700 12px/14px var(--f-disp);letter-spacing:.18em;text-transform:uppercase}
+.dw{font-size:11px;line-height:14px;color:var(--t3);margin-top:2px}
+.tmr .dnum,.tmr .dl{color:var(--a)}
+.gc{margin-left:auto;font:700 13px var(--f-disp);color:var(--t3)}
+.qz{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;padding:34px 0 50px}
+.qcap{font-size:12px;color:var(--t3)}
+.qa{--a:var(--today);width:620px;overflow:hidden;border-radius:var(--r-win);background:rgba(15,15,20,.94);backdrop-filter:blur(40px);
+  box-shadow:inset 0 0 0 1px var(--line-2),0 40px 90px -20px #000,0 0 120px -30px color-mix(in srgb,var(--a) 50%,transparent)}
+.qa::before{content:"";display:block;height:4px;background:var(--a)}
+.qin{display:flex;align-items:center;gap:14px;padding:18px 20px 6px;font:600 24px/32px var(--f-big)}
+.qin .pl{width:30px;height:30px;font-size:14px}
+.qin .caret{height:26px;vertical-align:-5px}
+.qa .chips{padding:0 20px 16px 64px;margin-top:6px}
+.qft{display:flex;align-items:center;gap:6px;padding:10px 20px;border-top:1px solid var(--line);background:rgba(255,255,255,.025)}
+.lbl{font:700 11px var(--f-disp);letter-spacing:.16em;text-transform:uppercase;color:var(--t3);margin-right:4px}
+.dest{font:700 11px/22px var(--f-disp);letter-spacing:.14em;text-transform:uppercase;padding:0 10px;border-radius:4px;color:var(--t3)}
+.dest.on{background:var(--a);color:var(--ink)}
+.qft .hint{margin-left:auto;display:flex;gap:12px}
+@keyframes pop{0%{transform:scale(.7)}55%{transform:scale(1.18)}100%{transform:scale(1)}}
+@keyframes strike{from{transform:scaleX(0)}}
+@keyframes drain{to{transform:scaleX(0)}}
+@keyframes blink{50%{opacity:0}}
+@keyframes chipIn{from{opacity:0;transform:translateY(4px) scale(.9)}}
+</style>
+</head>
+<body>
+<div class="wall"></div>
+<div class="cap"><b>АФИША</b>вариант B · смелый, акцентный · пятница, 23 октября, 09:42</div>
+<main class="stage">
+  <section class="w td">
+    <span class="more">&#xE712;</span>
+    <header class="hd">
+      <div class="big">5</div>
+      <div class="hm">
+        <div class="ttl">Сегодня</div>
+        <div class="sub">осталось · пятница, 23 октября</div>
+        <div class="seg"><i class="d"></i><i></i><i></i><i></i><i class="l"></i><i class="l"></i></div>
+        <div class="sub sm">1 из 6 готово · <span class="lt">2 просрочено</span></div>
+      </div>
+    </header>
+    <div class="list">
+      <div class="now">СЕЙЧАС 09:42</div>
+      <div class="row hov">
+        <button class="cb">&#xE73E;</button><span class="tm">10:00</span>
+        <div class="tx">Созвон по релизу<div class="mt ac"><i>&#xE823;</i>через 18 мин</div></div>
+        <div class="acts"><button class="tb"><i>&#xE72A;</i>Завтра</button><button class="ib">&#xE787;</button><button class="ib del">&#xE74D;</button></div>
+      </div>
+      <div class="row">
+        <button class="cb">&#xE73E;</button><span class="tm">15:30</span>
+        <div class="tx">Забрать Мишу из бассейна<div class="mt"><i class="ac">&#xE8EE;</i>каждую пятницу</div></div>
+      </div>
+      <div class="row ed">
+        <button class="cb">&#xE73E;</button><span class="tm ghost">18:00</span>
+        <div class="tx">
+          <div class="ein">Купить корм коту <span class="tok">в 18:00</span><span class="caret"></span></div>
+          <div class="chips"><span class="chip"><i>&#xE823;</i>18:00</span><span class="hint"><span class="k">Enter</span> сохранить · <span class="k">Esc</span> отмена</span></div>
+        </div>
+      </div>
+      <div class="row done">
+        <button class="cb">&#xE73E;</button><span class="tm"></span>
+        <div class="tx"><span class="st">Оплатить интернет</span></div>
+      </div>
+      <div class="od">
+        <div class="odh">Просрочено <span class="n">2</span></div>
+        <div class="row late">
+          <button class="cb">&#xE73E;</button>
+          <div class="tx">Передать показания счётчиков<div class="mt lt">Просрочено · вчера</div></div>
+          <div class="rs"><button class="pill p">Сегодня</button><button class="pill">Завтра</button></div>
+        </div>
+        <div class="row late">
+          <button class="cb">&#xE73E;</button>
+          <div class="tx">Записаться к стоматологу<div class="mt lt">Просрочено · 09:00</div></div>
+          <div class="rs"><button class="pill">Завтра</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="snack"><i>&#xE73E;</i><span class="s1"><b>Готово</b> · Оплатить интернет</span><button class="undo">Отменить</button></div>
+    <div class="add"><div class="ai"><span class="pl">&#xE710;</span>Новая задача<span class="ex">«в 18:00»</span></div></div>
+  </section>
+  <section class="w nd">
+    <span class="more">&#xE712;</span>
+    <header class="hd">
+      <div class="big">5</div>
+      <div class="hm">
+        <div class="ttl">Без срока</div>
+        <div class="sub">в копилке «когда-нибудь»</div>
+        <div class="sub sm">старейшая лежит <span class="ac">3 недели</span></div>
+      </div>
+    </header>
+    <div class="list">
+      <div class="row"><button class="cb">&#xE73E;</button><div class="tx">Разобрать зимние вещи на антресоли<div class="mt dim"><i>&#xE81C;</i>лежит 3 недели</div></div></div>
+      <div class="row"><button class="cb">&#xE73E;</button><div class="tx">Найти мастера — течёт кран на кухне</div></div>
+      <div class="row"><button class="cb">&#xE73E;</button><div class="tx">Досмотреть „Шогуна“</div></div>
+      <div class="row"><button class="cb">&#xE73E;</button><div class="tx">Прочитать статью про async в Rust</div></div>
+      <div class="row"><button class="cb">&#xE73E;</button><div class="tx">Придумать подарок Лене на ДР</div></div>
+    </div>
+    <div class="add on">
+      <div class="ai"><span class="pl">&#xE710;</span><span>Позвонить маме <span class="tok">в вс</span> <span class="tok">в 12:00</span><span class="caret"></span></span></div>
+      <div class="chips ind"><span class="chip"><i>&#xE787;</i>Вс, 25 окт</span><span class="chip"><i>&#xE823;</i>12:00</span><span class="chip rt" style="--c:var(--soon)">&#x2192; Предстоящие</span></div>
+      <div class="hint ind">Enter — добавить и отправить в «Предстоящие»</div>
+    </div>
+  </section>
+  <section class="w up">
+    <span class="more">&#xE712;</span>
+    <header class="hd">
+      <div class="big">6</div>
+      <div class="hm">
+        <div class="ttl">Предстоящие</div>
+        <div class="sub">ближайшая — завтра в 11:00</div>
+        <div class="seg"><i class="s"></i><i></i><i class="s"></i><i></i><i></i><i></i><i></i><i class="s"></i></div>
+        <div class="wkl"><span class="s">сб</span><span>вс</span><span class="s">пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span class="s">сб</span></div>
+      </div>
+    </header>
+    <div class="list">
+      <div class="gh tmr"><span class="dnum">24</span><div><div class="dl">Завтра</div><div class="dw">сб, 24 окт</div></div><span class="gc">2</span></div>
+      <div class="row"><button class="cb">&#xE73E;</button><span class="tm">11:00</span><div class="tx">Поменять резину на зимнюю</div></div>
+      <div class="row"><button class="cb">&#xE73E;</button><span class="tm"></span><div class="tx">Закупить продукты на неделю</div></div>
+      <div class="gh"><span class="dnum">26</span><div><div class="dl">Пн, 26 окт</div><div class="dw">через 3 дня</div></div><span class="gc">2</span></div>
+      <div class="row"><button class="cb">&#xE73E;</button><span class="tm">10:00</span><div class="tx">Планёрка<div class="mt"><i class="ac">&#xE8EE;</i>каждый пн</div></div></div>
+      <div class="row"><button class="cb">&#xE73E;</button><span class="tm"></span><div class="tx">Сдать отчёт за квартал</div></div>
+      <div class="gh"><span class="dnum">31</span><div><div class="dl">Сб, 31 окт</div><div class="dw">через 8 дней</div></div><span class="gc">2</span></div>
+      <div class="row"><button class="cb">&#xE73E;</button><span class="tm">19:00</span><div class="tx">Хэллоуин у Кати — взять костюм</div></div>
+      <div class="row"><button class="cb">&#xE73E;</button><span class="tm"></span><div class="tx">Продлить ОСАГО</div></div>
+    </div>
+    <div class="add"><div class="ai"><span class="pl">&#xE710;</span>Новая задача<span class="ex">«в пн в 10:00»</span></div></div>
+  </section>
+</main>
+<section class="qz">
+  <div class="qcap"><span class="k">Ctrl</span> + <span class="k">Alt</span> + <span class="k">Пробел</span> — быстрая задача из любого окна</div>
+  <div class="qa">
+    <div class="qin"><span class="pl">&#xE710;</span><span>Выпить таблетки <span class="tok">каждый день</span> <span class="tok">в 21:00</span><span class="caret"></span></span></div>
+    <div class="chips">
+      <span class="chip"><i>&#xE8EE;</i>Каждый день</span>
+      <span class="chip"><i>&#xE823;</i>21:00</span>
+      <span class="chip"><i>&#xE787;</i>Начало: сегодня</span>
+      <span class="chip rt">&#x2192; Сегодня</span>
+    </div>
+    <div class="qft">
+      <span class="lbl">Куда</span><span class="dest on">Сегодня</span><span class="dest">Без срока</span><span class="dest">Предстоящие</span>
+      <span class="hint"><span><span class="k">Enter</span> добавить</span><span><span class="k">Esc</span> закрыть</span></span>
+    </div>
+  </div>
+</section>
+</body>
+</html>
