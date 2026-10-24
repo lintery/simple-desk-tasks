@@ -154,39 +154,61 @@ fn base64(bytes: &[u8]) -> String {
 struct Reply {
     status: u16,
     body: String,
+    /// Where a redirect points.
+    location: Option<String>,
+    /// The URL that answered (after redirects): hrefs in the body are relative to it.
+    url: String,
 }
 
+/// Redirects followed by hand: the system won't follow one for PROPFIND (it
+/// wants a user's say-so) and fails the request, and Mail.ru's
+/// /.well-known/caldav is a 301 to /principals/.
+const MAX_REDIRECTS: usize = 5;
+
 fn dav(method: &str, url: &str, depth: &str, body: &str, auth: &str) -> Result<Reply, String> {
-    let send = || -> windows::core::Result<Reply> {
-        let filter = HttpBaseProtocolFilter::new()?;
-        filter.SetAllowUI(false)?; // never pop up a Windows sign-in dialog
-        let client = HttpClient::Create(&filter)?;
-        let request = HttpRequestMessage::Create(&HttpMethod::Create(&HSTRING::from(method))?, &Uri::CreateUri(&HSTRING::from(url))?)?;
-        let headers = request.Headers()?;
-        headers.TryAppendWithoutValidation(&HSTRING::from("Authorization"), &HSTRING::from(auth))?;
-        headers.TryAppendWithoutValidation(&HSTRING::from("Depth"), &HSTRING::from(depth))?;
-        headers.TryAppendWithoutValidation(&HSTRING::from("User-Agent"), &HSTRING::from("SimpleDeskTasks"))?;
-        let content = HttpStringContent::CreateFromStringWithEncodingAndMediaType(
-            &HSTRING::from(body),
-            UnicodeEncoding::Utf8,
-            &HSTRING::from("application/xml"),
-        )?;
-        request.SetContent(&content)?;
-        let response = finish(client.SendRequestAsync(&request)?, HTTP_TIMEOUT)?;
-        let status = response.StatusCode()?.0 as u16;
-        let body = finish(response.Content()?.ReadAsStringAsync()?, HTTP_TIMEOUT)?.to_string();
-        Ok(Reply { status, body })
-    };
-    let reply = send().map_err(|e| format!("Нет связи с calendar.mail.ru: {}", e.message()))?;
-    match reply.status {
-        200..=299 => Ok(reply),
-        401 | 403 => Err("Mail.ru не принял почту или пароль приложения".into()),
-        s => Err(format!("calendar.mail.ru ответил {s}")),
+    let mut url = url.to_string();
+    for _ in 0..=MAX_REDIRECTS {
+        let reply = send(method, &url, depth, body, auth).map_err(|e| format!("Нет связи с calendar.mail.ru: {}", e.message()))?;
+        match (reply.status, &reply.location) {
+            // The password goes along, so only within the calendar's own site.
+            (301 | 302 | 303 | 307 | 308, Some(to)) if same_site(&absolute(&url, to)) => url = absolute(&url, to),
+            (200..=299, _) => return Ok(Reply { url, ..reply }),
+            (401 | 403, _) => return Err("Mail.ru не принял почту или пароль приложения".into()),
+            (s, _) => return Err(format!("calendar.mail.ru ответил {s}")),
+        }
     }
+    Err("calendar.mail.ru: слишком много перенаправлений".into())
+}
+
+fn send(method: &str, url: &str, depth: &str, body: &str, auth: &str) -> windows::core::Result<Reply> {
+    let filter = HttpBaseProtocolFilter::new()?;
+    filter.SetAllowUI(false)?; // never pop up a Windows sign-in dialog
+    filter.SetAllowAutoRedirect(false)?;
+    let client = HttpClient::Create(&filter)?;
+    let request = HttpRequestMessage::Create(&HttpMethod::Create(&HSTRING::from(method))?, &Uri::CreateUri(&HSTRING::from(url))?)?;
+    let headers = request.Headers()?;
+    headers.TryAppendWithoutValidation(&HSTRING::from("Authorization"), &HSTRING::from(auth))?;
+    headers.TryAppendWithoutValidation(&HSTRING::from("Depth"), &HSTRING::from(depth))?;
+    headers.TryAppendWithoutValidation(&HSTRING::from("User-Agent"), &HSTRING::from("SimpleDeskTasks"))?;
+    let content = HttpStringContent::CreateFromStringWithEncodingAndMediaType(
+        &HSTRING::from(body),
+        UnicodeEncoding::Utf8,
+        &HSTRING::from("application/xml"),
+    )?;
+    request.SetContent(&content)?;
+    let response = finish(client.SendRequestAsync(&request)?, HTTP_TIMEOUT)?;
+    let status = response.StatusCode()?.0 as u16;
+    let location = response.Headers()?.Location().ok().and_then(|u| u.RawUri().ok()).map(|s| s.to_string());
+    let body = finish(response.Content()?.ReadAsStringAsync()?, HTTP_TIMEOUT)?.to_string();
+    Ok(Reply { status, body, location, url: url.to_string() })
 }
 
 fn auth(email: &str, password: &str) -> String {
     format!("Basic {}", base64(format!("{email}:{password}").as_bytes()))
+}
+
+fn same_site(url: &str) -> bool {
+    url.strip_prefix(SERVER).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// `href` relative to `base`.
@@ -215,9 +237,11 @@ fn first_text(doc: &XmlDocument, path: &str) -> Option<String> {
     node.InnerText().ok().map(|s| s.to_string().trim().to_string()).filter(|s| !s.is_empty())
 }
 
-fn prop_find(url: &str, depth: &str, props: &str, auth: &str) -> Result<XmlDocument, String> {
+/// The answer, and the URL that gave it (hrefs in it are relative to that).
+fn prop_find(url: &str, depth: &str, props: &str, auth: &str) -> Result<(XmlDocument, String), String> {
     let body = format!("<?xml version='1.0' encoding='utf-8'?><d:propfind {NS}><d:prop>{props}</d:prop></d:propfind>");
-    xml(&dav("PROPFIND", url, depth, &body, auth)?.body)
+    let reply = dav("PROPFIND", url, depth, &body, auth)?;
+    Ok((xml(&reply.body)?, reply.url))
 }
 
 /// `#RRGGBB[AA]` → `#rrggbb`.
@@ -232,24 +256,27 @@ fn color(raw: &str) -> String {
 /// The account's calendars that hold events.
 fn discover(email: &str, password: &str) -> Result<Vec<CalendarRef>, String> {
     let auth = auth(email, password);
+    // Mail.ru answers CalDAV at /principals/ (/.well-known/caldav redirects
+    // there; the site's root is the web app and says 400 to PROPFIND).
     let mut principal = None;
+    let mut answered = None;
     let mut last_err = String::new();
-    for start in [format!("{SERVER}/.well-known/caldav"), format!("{SERVER}/")] {
+    for start in [format!("{SERVER}/principals/"), format!("{SERVER}/.well-known/caldav")] {
         match prop_find(&start, "0", "<d:current-user-principal/>", &auth) {
-            Ok(doc) => {
-                if let Some(href) = first_text(&doc, "//d:current-user-principal/d:href") {
-                    principal = Some(absolute(&start, &href));
-                    break;
-                }
+            Ok((doc, at)) => {
+                principal = first_text(&doc, "//d:current-user-principal/d:href").map(|href| absolute(&at, &href));
+                answered = Some(at);
+                break; // the other way in leads to the same place
             }
             Err(e) if e.contains("не принял") => return Err(e),
             Err(e) => last_err = e,
         }
     }
-    let principal = principal.ok_or(if last_err.is_empty() { "календарь не найден".into() } else { last_err })?;
-    let doc = prop_find(&principal, "0", "<c:calendar-home-set/>", &auth)?;
-    let home = absolute(&principal, &first_text(&doc, "//c:calendar-home-set/d:href").ok_or("не найден список календарей")?);
-    let doc = prop_find(&home, "1", "<d:resourcetype/><d:displayname/><a:calendar-color/><c:supported-calendar-component-set/>", &auth)?;
+    // No current-user-principal: the collection that answered may be the principal itself.
+    let principal = principal.or(answered).ok_or(if last_err.is_empty() { "календарь не найден".into() } else { last_err })?;
+    let (doc, at) = prop_find(&principal, "0", "<c:calendar-home-set/>", &auth)?;
+    let home = absolute(&at, &first_text(&doc, "//c:calendar-home-set/d:href").ok_or("не найден список календарей")?);
+    let (doc, home) = prop_find(&home, "1", "<d:resourcetype/><d:displayname/><a:calendar-color/><c:supported-calendar-component-set/>", &auth)?;
     let ns = namespaces()?;
     let responses = doc.SelectNodesNS(&HSTRING::from("//d:response"), &ns).map_err(|e| e.message().to_string())?;
     let mut out = Vec::new();
@@ -489,5 +516,27 @@ mod tests {
         assert_eq!(color("#abc"), "");
         assert_eq!(color(""), "");
         assert_eq!(color("abcdeé"), "");
+    }
+
+    #[test]
+    fn only_the_calendar_site_gets_redirects_followed() {
+        assert!(same_site("https://calendar.mail.ru/principals/"));
+        assert!(!same_site("https://calendar.mail.ru.evil.example/x"));
+        assert!(!same_site("http://calendar.mail.ru/principals/"));
+        assert!(!same_site("https://calendar.mail.ru@evil.example/"));
+    }
+
+    /// Against the real server (network): both ways in reach CalDAV, which
+    /// turns a made-up account down instead of answering 400.
+    #[test]
+    #[ignore]
+    fn mail_ru_answers_caldav() {
+        // SAFETY: as in `spawn`.
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        let auth = auth("nobody-sdt-test@mail.ru", "wrong");
+        for url in [format!("{SERVER}/principals/"), format!("{SERVER}/.well-known/caldav")] {
+            let err = prop_find(&url, "0", "<d:current-user-principal/>", &auth).err().unwrap_or_default();
+            assert!(err.contains("не принял"), "{url}: {err}");
+        }
     }
 }
