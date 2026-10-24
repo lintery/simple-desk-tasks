@@ -1,19 +1,31 @@
 //! What's playing, from Windows' media sessions (the source of the system media
 //! flyout): Spotify first, otherwise any player that reports itself. Polled
 //! once a second for the player widget, which is shown only while there's one.
+//! The volume is the app's own one in the Windows volume mixer (Core Audio).
 
 use serde::Serialize;
-use std::{sync::Mutex, thread, time::Duration};
+use std::{path::Path, sync::Mutex, thread, time::Duration};
 use tauri::{AppHandle, Emitter, Manager};
 use windows::{
-    core::Result as WinResult,
+    core::{Interface, Result as WinResult, PWSTR},
     Media::Control::{
         GlobalSystemMediaTransportControlsSession as Session,
         GlobalSystemMediaTransportControlsSessionManager as SessionManager,
         GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status,
     },
     Storage::Streams::{DataReader, IRandomAccessStreamReference},
-    Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED},
+    Win32::{
+        Foundation::CloseHandle,
+        Media::Audio::{
+            eRender, IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator, ISimpleAudioVolume,
+            MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+        },
+        System::{
+            Com::{CoCreateInstance, CLSCTX_ALL},
+            Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION},
+            WinRT::{RoInitialize, RO_INIT_MULTITHREADED},
+        },
+    },
 };
 
 pub const LABEL: &str = "player";
@@ -42,10 +54,16 @@ pub struct Media {
     pub cover: Option<String>,
     pub can_prev: bool,
     pub can_next: bool,
+    pub can_seek: bool,
+    /// The app's mixer volume, 0..1; `None` when its audio can't be found.
+    pub volume: Option<f32>,
+    pub muted: bool,
 }
 
 /// What the widget shows, and which player it belongs to.
 static SHOWN: Mutex<Option<(String, Media)>> = Mutex::new(None);
+/// Volume and mute changes apply one at a time (the page sends them in order).
+static MIXER: Mutex<()> = Mutex::new(());
 
 pub fn active() -> bool {
     SHOWN.lock().unwrap().is_some()
@@ -77,6 +95,64 @@ fn app_name(id: &str) -> String {
 
 fn is_spotify(id: &str) -> bool {
     id.to_lowercase().contains("spotify")
+}
+
+/// Lowercase exe name without extension of a process, e.g. "spotify".
+fn exe_stem(pid: u32) -> Option<String> {
+    // SAFETY: plain Win32 calls on a handle closed below; the buffer outlives them.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 520];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len);
+        let _ = CloseHandle(process);
+        ok.ok()?;
+        let path = String::from_utf16_lossy(&buf[..len as usize]);
+        Some(Path::new(&path).file_stem()?.to_string_lossy().to_lowercase())
+    }
+}
+
+/// Whether a process's exe belongs to the media session's app (Spotify.exe for
+/// "SpotifyAB.SpotifyMusic_…!Spotify", chrome.exe for "Chrome", …).
+fn same_app(id: &str, exe: &str) -> bool {
+    exe.len() >= 3 && id.to_lowercase().contains(exe)
+}
+
+/// Mixer volume controls of every audio session the app has, on any output.
+fn app_volumes(id: &str) -> Vec<ISimpleAudioVolume> {
+    let mut out = Vec::new();
+    // SAFETY: COM calls on interfaces we own; the thread is in the MTA (RoInitialize).
+    unsafe {
+        let Ok(devices) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
+            .and_then(|e| e.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE))
+        else {
+            return out;
+        };
+        for i in 0..devices.GetCount().unwrap_or(0) {
+            let Ok(manager) = devices.Item(i).and_then(|d| d.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)) else {
+                continue;
+            };
+            let Ok(sessions) = manager.GetSessionEnumerator() else { continue };
+            for j in 0..sessions.GetCount().unwrap_or(0) {
+                let Ok(control) = sessions.GetSession(j) else { continue };
+                let Ok(pid) = control.cast::<IAudioSessionControl2>().and_then(|c| c.GetProcessId()) else { continue };
+                if pid == 0 || !exe_stem(pid).is_some_and(|exe| same_app(id, &exe)) {
+                    continue;
+                }
+                if let Ok(volume) = control.cast::<ISimpleAudioVolume>() {
+                    out.push(volume);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The app's volume and mute as the mixer shows them (its first session).
+fn read_volume(id: &str) -> (Option<f32>, bool) {
+    let Some(v) = app_volumes(id).into_iter().next() else { return (None, false) };
+    // SAFETY: COM getters on an interface we own.
+    unsafe { (v.GetMasterVolume().ok(), v.GetMute().is_ok_and(|m| m.as_bool())) }
 }
 
 fn playing(s: &Session) -> bool {
@@ -192,6 +268,7 @@ fn read(session: &Session, id: &str, cover: &mut Cover) -> WinResult<Option<Medi
             cover.art = Some(art);
         }
     }
+    let (volume, muted) = read_volume(id);
     Ok(Some(Media {
         app: app_name(id),
         title,
@@ -203,6 +280,9 @@ fn read(session: &Session, id: &str, cover: &mut Cover) -> WinResult<Option<Medi
         cover: cover.art.clone(),
         can_prev: controls.IsPreviousEnabled().unwrap_or(false),
         can_next: controls.IsNextEnabled().unwrap_or(false),
+        can_seek: controls.IsPlaybackPositionEnabled().unwrap_or(false) && end > start,
+        volume,
+        muted,
     }))
 }
 
@@ -266,19 +346,47 @@ pub fn media_state() -> Option<Media> {
     SHOWN.lock().unwrap().as_ref().map(|(_, m)| m.clone())
 }
 
-/// `toggle`, `next` or `prev` for the player the widget shows.
+/// For the player the widget shows: `toggle`, `next`, `prev`; `seek` to
+/// `value` ms; `volume` to `value` (0..1, also unmutes); `mute` on (`value` 1)
+/// or off (0).
 #[tauri::command]
-pub async fn media_control(action: String) -> Result<(), String> {
+pub async fn media_control(action: String, value: Option<f64>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         // SAFETY: as in `spawn`; this blocking-pool thread may not be initialized yet.
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        let value = value.filter(|v| v.is_finite());
+        let _turn = matches!(action.as_str(), "volume" | "mute").then(|| MIXER.lock().unwrap());
         let manager = SessionManager::RequestAsync().and_then(|op| op.get()).map_err(|e| e.to_string())?;
         let shown_id = SHOWN.lock().unwrap().as_ref().map(|(id, _)| id.clone());
-        let (session, _) = pick(&manager, shown_id.as_deref(), &[]).ok_or("Плеер не найден")?;
+        let (session, id) = pick(&manager, shown_id.as_deref(), &[]).ok_or("Плеер не найден")?;
         let op = match action.as_str() {
             "toggle" => session.TryTogglePlayPauseAsync(),
             "next" => session.TrySkipNextAsync(),
             "prev" => session.TrySkipPreviousAsync(),
+            "seek" => {
+                let ms = value.ok_or("no position")?.max(0.0) as i64;
+                let start = session.GetTimelineProperties().and_then(|t| t.StartTime()).map_err(|e| e.to_string())?;
+                session.TryChangePlaybackPositionAsync(start.Duration + ms * 10_000)
+            }
+            "volume" | "mute" => {
+                let v = value.ok_or("no value")?;
+                let volumes = app_volumes(&id);
+                if volumes.is_empty() {
+                    return Err("Громкость этого плеера недоступна".into());
+                }
+                for control in volumes {
+                    // SAFETY: COM setters on an interface we own; a null event context is allowed.
+                    unsafe {
+                        if action == "volume" {
+                            control.SetMasterVolume(v.clamp(0.0, 1.0) as f32, std::ptr::null()).map_err(|e| e.to_string())?;
+                            let _ = control.SetMute(false, std::ptr::null());
+                        } else {
+                            control.SetMute(v > 0.5, std::ptr::null()).map_err(|e| e.to_string())?;
+                        }
+                    }
+                }
+                return Ok(());
+            }
             _ => return Err(format!("unknown action {action}")),
         };
         op.and_then(|op| op.get()).map(|_| ()).map_err(|e| e.to_string())

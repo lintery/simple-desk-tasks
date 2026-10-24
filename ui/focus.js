@@ -61,7 +61,7 @@ const focusing = (t) => t.phase === 'focus' && t.running;
 function setIcon(button, name) {
   if (button.dataset.icon === name) return;
   button.dataset.icon = name;
-  button.innerHTML = `<svg class="i"><use href="#${name}"/></svg>`;
+  button.innerHTML = `<svg class="i"><use href="#i-${name}"/></svg>`;
 }
 
 /** What comes after the current phase, e.g. «перерыв 5 мин». */
@@ -118,6 +118,26 @@ function render() {
 // ---------- sounds ----------
 
 const soundTitle = (id) => SOUNDS.find((s) => s.id === id)?.title ?? '';
+const groupOf = (id) => SOUNDS.find((s) => s.id === id)?.group;
+const GROUPS = [['rain', 'Дождь'], ['nature', 'Природа'], ['noise', 'Шум']].filter(([g]) =>
+  SOUNDS.some((s) => s.group === g));
+/** The group whose tiles are shown. */
+let group = null;
+
+function renderTiles() {
+  $('groups').innerHTML = GROUPS.map(([g, title]) => `<button class="grp" data-group="${g}">${title}</button>`).join('');
+  $('tiles').innerHTML = SOUNDS.filter((s) => s.group === group).map(
+    (s) => `<button class="tile" data-id="${s.id}"><svg class="ti"><use href="#s-${s.id}"/></svg><span>${s.title}</span>` +
+      '<div class="eq"><i></i><i></i><i></i></div></button>',
+  ).join('');
+}
+
+function showGroup(g) {
+  if (g === group || !GROUPS.some(([id]) => id === g)) return;
+  group = g;
+  renderTiles();
+  renderSound();
+}
 
 /** The sound that should be audible right now, if any. */
 function wanted() {
@@ -131,6 +151,10 @@ function renderSound() {
     const id = tile.dataset.id;
     tile.classList.toggle('on', id === playing);
     tile.classList.toggle('sel', id !== playing && id === timer?.sound);
+  }
+  for (const b of $('groups').children) {
+    b.classList.toggle('sel', b.dataset.group === group);
+    b.classList.toggle('live', !!playing && b.dataset.group === groupOf(playing) && b.dataset.group !== group);
   }
   $('wave').classList.toggle('still', !playing);
   const now = $('now');
@@ -191,10 +215,10 @@ function setVolume(v) {
   renderSound();
 }
 
-$('tiles').innerHTML = SOUNDS.map(
-  (s) => `<button class="tile" data-id="${s.id}"><svg class="ti"><use href="#s-${s.id}"/></svg><span>${s.title}</span>` +
-    '<div class="eq"><i></i><i></i><i></i></div></button>',
-).join('');
+$('groups').addEventListener('click', (e) => {
+  const b = e.target.closest('.grp');
+  if (b) showGroup(b.dataset.group);
+});
 $('tiles').addEventListener('click', (e) => {
   const tile = e.target.closest('.tile');
   if (tile) pickSound(tile.dataset.id);
@@ -210,6 +234,7 @@ const fromPointer = (e) => {
   setVolume((e.clientX - r.left) / r.width);
 };
 slider.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
   slider.setPointerCapture(e.pointerId);
   fromPointer(e);
 });
@@ -234,7 +259,10 @@ function apply(next) {
     next.sound = timer.sound;
     next.volume = timer.volume;
   }
+  const first = !timer;
   timer = next;
+  // Open on the group of the chosen sound.
+  if (first && groupOf(timer.sound)) showGroup(groupOf(timer.sound));
   audio.setVolume(timer.volume);
   render();
   syncAudio();
@@ -269,6 +297,7 @@ const setMovable = (on) => {
 listenAll('widgets-movable', setMovable);
 api.movable().then(setMovable).catch(() => {});
 
+showGroup(GROUPS[0][0]);
 listenMine('focus', apply);
 listenMine('focus-chime', (kind) => audio.chime(kind));
 api.focus().then(apply).catch(() => {});

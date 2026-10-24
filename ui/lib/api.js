@@ -38,6 +38,6 @@ export const api = {
   focusPrefs: (sound, volume) => invoke('focus_prefs', { sound, volume }),
   /** What the player widget shows, or null. */
   media: () => invoke('media_state'),
-  /** 'toggle' | 'next' | 'prev'. */
-  mediaControl: (action) => invoke('media_control', { action }),
+  /** 'toggle' | 'next' | 'prev'; 'seek' to `value` ms; 'volume' to `value` 0..1; 'mute' 1 / 0. */
+  mediaControl: (action, value = null) => invoke('media_control', { action, value }),
 };

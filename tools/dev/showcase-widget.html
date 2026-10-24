@@ -5,7 +5,7 @@
 <title>Showcase: widget</title>
 <!-- One widget of tools/dev/showcase.html: the real page from ui/ (index, focus
      or player) on made-up data, with demo-wallpaper.svg behind the glass.
-     ?w=today|upcoming|nodate|focus|player&x=<left>&y=<top>[&type=<text in the add field>] -->
+     ?w=today|upcoming|nodate|focus|player&x=<left>&y=<top>[&type=<text in the add field>][&sound=<focus sound id>] -->
 <script type="module">
 // A fixed moment (Wed 21 Oct 2026, 10:00 local), so the picture comes out the
 // same whenever it's regenerated.
@@ -43,7 +43,7 @@ const MIN = 60_000;
 // Second pomodoro of the day, 11:24 left, rain playing.
 const focus = {
   mode: 'pomodoro', phase: 'focus', running: true, endsAt: now + 11 * MIN + 24_000, remaining: 0,
-  total: 25 * MIN, round: 1, day: day(0), today: 25 * MIN, sound: 'rain', volume: 0.6,
+  total: 25 * MIN, round: 1, day: day(0), today: 25 * MIN, sound: q.get('sound') || 'rain', volume: 0.6,
 };
 const cover = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 92"><defs>' +
@@ -54,6 +54,7 @@ const cover = 'data:image/svg+xml,' + encodeURIComponent(
 const media = {
   app: 'Spotify', title: 'Weightless', artist: 'Marconi Union', playing: true,
   position: 192_000, duration: 489_000, updated: now, cover, canPrev: true, canNext: true,
+  canSeek: true, volume: 0.7, muted: false,
 };
 const backdrop = { monW: 1200, monH: 900, winX: +q.get('x') || 0, winY: +q.get('y') || 0, scale: 1, style: 'fill', ver: 1 };
 const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');

@@ -80,7 +80,18 @@
 .slider.mute i{background:var(--t4)}
 .slider.mute i::after{background:var(--t3)}
 .vol-v{width:22px;text-align:right;font-size:11.5px;color:var(--t3);font-variant-numeric:tabular-nums}
-.tiles{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:60px 60px;gap:6px}
+.snd-body{display:flex;gap:8px}
+/* Sound groups: a vertical switch; a dot marks the group of the sound that's playing. */
+.groups{flex:none;width:86px;display:flex;flex-direction:column;gap:2px;padding:2px;border-radius:7px;
+  background:rgba(0,0,0,.16);box-shadow:inset 0 0 0 1px var(--line)}
+.grp{position:relative;flex:1;display:flex;align-items:center;padding:0 10px;border-radius:var(--r-chip);
+  font-size:12px;color:var(--t3);text-align:left;transition:background var(--d1),color var(--d1)}
+.grp:hover{background:var(--raise);color:var(--t2)}
+.grp.sel{background:var(--raise-2);color:var(--t1);font-weight:600;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 1px 2px rgba(0,0,0,.25)}
+.grp.live::after{content:"";position:absolute;right:9px;top:50%;width:5px;height:5px;margin-top:-2.5px;border-radius:50%;
+  background:var(--ac);box-shadow:0 0 0 3px var(--ac-soft)}
+.tiles{flex:1;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:60px 60px;gap:6px}
+.tile span{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .tile{position:relative;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;padding:9px 10px 8px 11px;
   border-radius:var(--r-row);text-align:left;color:var(--t2);background:var(--raise);
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.03),inset 0 1px 0 rgba(255,255,255,.04);
