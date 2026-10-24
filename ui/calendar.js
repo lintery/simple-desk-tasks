@@ -107,7 +107,8 @@ function renderMonth() {
     if (day < today) cls.push('past');
     if (day.getDay() === 0 || day.getDay() === 6) cls.push('we');
     if (day.getTime() === today.getTime()) cls.push('today');
-    if (colors.length) cls.push('has');
+    // A click scrolls the agenda to it: only days the agenda lists.
+    if (colors.length && day >= today && day < addDays(today, AGENDA_DAYS)) cls.push('go');
     const dots = colors.length ? `<span class="dots">${colors.map((c) => `<i style="--c:${esc(c)}"></i>`).join('')}</span>` : '';
     cells.push(`<div class="${cls.join(' ')}" data-day="${day.getTime()}"><b>${day.getDate()}</b>${dots}</div>`);
   }
@@ -132,15 +133,55 @@ function eventHtml(m, now, nextId) {
     const done = (now - m.start) / Math.max(1, m.end - m.start);
     extra = `<div class="ev-pr"><span>идёт <em>· ещё ${span(m.end - now)}</em></span><span class="pb"><i style="width:${(done * 100).toFixed(1)}%"></i></span></div>`;
   }
-  const join = m.link && (live || m.id === nextId) ? `<button class="join" data-link="${esc(m.link)}"><svg class="i"><use href="#i-vid"/></svg>Подключиться</button>` : '';
+  // The live and the next meeting get a full «Подключиться»; any other one
+  // with a link a small button at the end of its row (ended ones don't).
+  const prominent = live || m.id === nextId;
+  const join = m.link && prominent ? `<button class="join" data-link="${esc(m.link)}"><svg class="i"><use href="#i-vid"/></svg>Подключиться</button>` : '';
+  const ended = m.end <= now;
+  const quick = m.link && !prominent && !ended
+    ? `<button class="join sm" data-link="${esc(m.link)}" title="Подключиться · ${esc(service(m.link))}"><svg class="i"><use href="#i-vid"/></svg></button>`
+    : '';
   if (m.id === nextId && !live) extra += `<div class="ev-act"><span class="cd">через ${span(m.start - now)}</span>${join}</div>`;
   else if (join) extra += `<div class="ev-act">${join}</div>`;
   return `<div class="${cls.join(' ')}" style="--c:${esc(m.color || 'var(--ac)')}" title="${esc(m.title)}">${time}<div class="ev-c"></div>` +
-    `<div class="ev-b"><div class="ev-ttl">${esc(m.title)}</div><div class="ev-m">${meta}</div>${extra}</div></div>`;
+    `<div class="ev-b"><div class="ev-ttl">${esc(m.title)}</div><div class="ev-m">${meta}</div>${extra}</div>${quick}</div>`;
 }
+
+/** A press in the agenda holds its redraws back: one landing between
+ * mousedown and mouseup would replace the button and lose the click. */
+let pressing = false;
+let heldBack = false;
+let holdTimer = 0;
+// Only a press on a button: one on the scrollbar never reports its release.
+// And a missed release (focus lost mid-press) can't hold redraws for long.
+$('agenda').addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('.join')) return;
+  pressing = true;
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(release, 1500);
+});
+window.addEventListener('blur', () => release());
+function release() {
+  clearTimeout(holdTimer);
+  if (!pressing) return;
+  pressing = false;
+  // After the click this press makes.
+  setTimeout(() => {
+    if (heldBack && !pressing) {
+      heldBack = false;
+      renderAgenda();
+    }
+  }, 0);
+}
+window.addEventListener('pointerup', release);
+window.addEventListener('pointercancel', release);
 
 function renderAgenda() {
   if (!state.configured) return;
+  if (pressing) {
+    heldBack = true;
+    return;
+  }
   const now = Date.now();
   const today = startOfDay(new Date(now));
   const next = state.meetings.find((m) => !m.allDay && m.start > now && m.start - now <= NEXT_WITHIN);
@@ -181,7 +222,7 @@ function apply(next) {
 }
 
 w.addEventListener('click', (e) => {
-  const target = e.target.closest('button, .d.has');
+  const target = e.target.closest('button, .d.go');
   if (!target) return;
   if (target.id === 'connect' || target.id === 'fix') api.showSettings('calendar').catch(() => {});
   else if (target.id === 'sync') api.calendarRefresh().catch(() => {});
@@ -190,8 +231,16 @@ w.addEventListener('click', (e) => {
     renderMonth();
   } else if (target.classList.contains('join')) api.openUrl(target.dataset.link).catch(() => {});
   else if (target.dataset.day) {
-    // A busy day in the month: scroll the agenda to it, when it's there.
-    $('agenda').querySelector(`.gh[data-day="${target.dataset.day}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    // A busy day in the month: scroll the agenda to it, when it's there. Only
+    // the agenda moves (scrollIntoView would also shift the widget's own
+    // boxes, which hide their overflow but still scroll).
+    const agenda = $('agenda');
+    const head = agenda.querySelector(`.gh[data-day="${target.dataset.day}"]`);
+    if (head) {
+      // Today is the top of the list, padding included.
+      const top = head === agenda.firstElementChild ? 0 : agenda.scrollTop + head.getBoundingClientRect().top - agenda.getBoundingClientRect().top;
+      agenda.scrollTo({ top });
+    }
   }
 });
 

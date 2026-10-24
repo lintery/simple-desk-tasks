@@ -24,8 +24,8 @@
 .d b{margin-top:2px;width:24px;height:22px;display:grid;place-items:center;border-radius:var(--r-chip);font-weight:400}
 .d.we,.d.past{color:var(--t3)}
 .d.out{color:var(--t4);opacity:.6}
-.d.has{cursor:pointer}
-.d.has:hover b{background:var(--raise-2);color:var(--t1)}
+.d.go{cursor:pointer}
+.d.go:hover b{background:var(--raise-2);color:var(--t1)}
 .d.today b{background:var(--ac);color:var(--ink);font-weight:700;box-shadow:0 0 0 3px var(--ac-soft)}
 .dots{position:absolute;bottom:2px;left:0;right:0;display:flex;justify-content:center;gap:2px}
 .dots i{width:3px;height:3px;border-radius:50%;background:var(--c)}
@@ -74,6 +74,12 @@
 .join:active{transform:scale(.96)}
 .join .i{width:13px;height:13px;stroke-width:1.6}
 .ev.now .ev-act{margin-top:6px}
+/* the small one on other meetings with a link */
+.join.sm{flex:none;align-self:center;width:28px;height:28px;padding:0;justify-content:center;color:var(--t2);background:rgba(255,255,255,.07);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
+  transition:background var(--d1),color var(--d1),box-shadow var(--d1),transform var(--d1) var(--e-out)}
+.join.sm:hover{color:var(--ink);background:var(--ac);box-shadow:0 4px 12px -4px var(--ac-line)}
+.join.sm .i{width:14px;height:14px}
 
 /* states */
 .cta{flex:none;margin:4px 12px 8px;padding:14px;border-radius:8px;background:var(--raise);
