@@ -49,6 +49,20 @@ pub static MOVABLE: AtomicBool = AtomicBool::new(false);
 const MARGIN: f64 = 28.0;
 const GAP: f64 = 20.0;
 const WIDTH: f64 = 340.0;
+/// The player card sits under «Без срока», flush with the columns' bottom.
+const PLAYER_H: f64 = 120.0;
+/// The focus strip runs under all three columns.
+const FOCUS_H: f64 = 200.0;
+
+/// Smallest size a widget may get (logical px).
+pub fn min_size(label: &str) -> (f64, f64) {
+    match label {
+        crate::media::LABEL => (240.0, 100.0),
+        // dial, controls and four sound tiles; the dial needs the full height
+        crate::focus::LABEL => (900.0, FOCUS_H),
+        _ => (240.0, 160.0),
+    }
+}
 
 impl Layout {
     pub fn load(path: PathBuf) -> Self {
@@ -119,19 +133,27 @@ fn default_geom(label: &str, m: &Monitor) -> Geom {
     let wa = m.work_area();
     let s = m.scale_factor();
     let area_h = wa.size.height as f64 / s;
-    let tall = (area_h - 2.0 * MARGIN).min(560.0);
-    let idx = WIDGETS.iter().position(|(l, _)| *l == label).unwrap_or(0) as f64;
-    let h = if label == "nodate" { tall.min(420.0) } else { tall };
-    Geom { x: MARGIN + idx * (WIDTH + GAP), y: MARGIN, w: WIDTH, h }
+    // The columns leave room for the focus strip under them.
+    let tall = (area_h - 2.0 * MARGIN - GAP - FOCUS_H).clamp(160.0, 560.0);
+    let nodate_h = (tall - GAP - PLAYER_H).max(160.0);
+    let column = |i: f64| MARGIN + i * (WIDTH + GAP);
+    match label {
+        "upcoming" => Geom { x: column(1.0), y: MARGIN, w: WIDTH, h: tall },
+        "nodate" => Geom { x: column(2.0), y: MARGIN, w: WIDTH, h: nodate_h },
+        crate::media::LABEL => Geom { x: column(2.0), y: MARGIN + nodate_h + GAP, w: WIDTH, h: PLAYER_H },
+        crate::focus::LABEL => Geom { x: column(0.0), y: MARGIN + tall + GAP, w: 3.0 * WIDTH + 2.0 * GAP, h: FOCUS_H },
+        _ => Geom { x: column(0.0), y: MARGIN, w: WIDTH, h: tall },
+    }
 }
 
 /// Keeps the widget fully inside the monitor's work area.
-fn clamp(g: Geom, m: &Monitor) -> Geom {
+fn clamp(label: &str, g: Geom, m: &Monitor) -> Geom {
     let wa = m.work_area();
     let s = m.scale_factor();
     let (aw, ah) = (wa.size.width as f64 / s, wa.size.height as f64 / s);
-    let w = g.w.clamp(240.0, aw.max(240.0));
-    let h = g.h.clamp(160.0, ah.max(160.0));
+    let (min_w, min_h) = min_size(label);
+    let w = g.w.clamp(min_w, aw.max(min_w));
+    let h = g.h.clamp(min_h, ah.max(min_h));
     Geom { x: g.x.clamp(0.0, (aw - w).max(0.0)), y: g.y.clamp(0.0, (ah - h).max(0.0)), w, h }
 }
 
@@ -166,7 +188,7 @@ fn home(app: &AppHandle, mons: &[Monitor], label: &str) -> Option<(Monitor, Geom
             (m, g)
         }
     };
-    let g = clamp(geom, &mon);
+    let g = clamp(label, geom, &mon);
     Some((mon, g))
 }
 
@@ -201,6 +223,10 @@ pub fn place_all(app: &AppHandle) {
     *app.state::<Layout>().placed_for.lock().unwrap() = monitors_signature(&mons);
     for (label, _) in WIDGETS {
         place_one(app, &mons, label);
+        // The player shows itself while something is playing (see media.rs).
+        if label == crate::media::LABEL && !crate::media::active() {
+            continue;
+        }
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.show();
         }

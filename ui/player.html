@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Плеер</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="player.css">
+<script type="module" src="player.js"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="play" viewBox="0 0 16 16"><path class="f" d="M5.2 3.6v8.8c0 .55.6.88 1.06.58l6.7-4.4a.7.7 0 0 0 0-1.16l-6.7-4.4A.69.69 0 0 0 5.2 3.6Z"/></symbol>
+  <symbol id="pause" viewBox="0 0 16 16"><rect class="f" x="4.2" y="3.4" width="2.6" height="9.2" rx=".9"/><rect class="f" x="9.2" y="3.4" width="2.6" height="9.2" rx=".9"/></symbol>
+  <symbol id="prev" viewBox="0 0 16 16"><path class="f" d="M12.2 4.1v7.8a.6.6 0 0 1-.94.5L5.7 8.5a.6.6 0 0 1 0-1l5.56-3.9a.6.6 0 0 1 .94.5Z"/><rect class="f" x="3.4" y="3.6" width="1.7" height="8.8" rx=".85"/></symbol>
+  <symbol id="next" viewBox="0 0 16 16"><path class="f" d="M3.8 4.1v7.8c0 .48.55.77.94.5l5.56-3.9a.6.6 0 0 0 0-1L4.74 3.6a.6.6 0 0 0-.94.5Z"/><rect class="f" x="10.9" y="3.6" width="1.7" height="8.8" rx=".85"/></symbol>
+  <symbol id="spotify" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M5 6.6c2-.6 4.3-.4 6.1.6M5.4 8.7c1.6-.45 3.3-.3 4.7.45M5.8 10.7c1.2-.3 2.4-.2 3.4.3"/></symbol>
+  <symbol id="note" viewBox="0 0 16 16"><path d="M6.4 11.6V4.2l6-1.4v7.4"/><circle cx="4.9" cy="11.6" r="1.5"/><circle cx="10.9" cy="10.2" r="1.5"/></symbol>
+</svg>
+<div class="w pl paused" id="w">
+  <canvas class="wall"></canvas>
+  <div class="pl-art" id="art"><svg class="i"><use href="#note"/></svg></div>
+  <div class="pl-body">
+    <div class="pl-top"><div class="pl-ttl" id="title"></div><div class="wave" id="wave"></div></div>
+    <div class="pl-who"><span id="artist"></span><span class="pl-src" id="src"></span></div>
+    <div class="pl-bar"><i id="fill"></i></div>
+    <div class="pl-row">
+      <span class="pl-t" id="pos"></span>
+      <div class="pl-ctl">
+        <button class="ib" id="prev" title="Предыдущий"><svg class="i"><use href="#prev"/></svg></button>
+        <button class="pl-pp" id="pp" title="Играть"><svg class="i"><use href="#play"/></svg></button>
+        <button class="ib" id="next" title="Следующий"><svg class="i"><use href="#next"/></svg></button>
+      </div>
+      <span class="pl-t" id="dur"></span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

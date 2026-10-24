@@ -27,6 +27,11 @@ windows = { version = "0.61", features = [
     "Win32_System_Memory",
     "Win32_Graphics_Gdi",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_WinRT",
+    "Foundation",
+    "Foundation_Collections",
+    "Media_Control",
+    "Storage_Streams",
 ] }
 
 [profile.release]

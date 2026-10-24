@@ -30,4 +30,14 @@ export const api = {
   /** No window took the drop: let the widget under the mouse handle it. */
   dropAtCursor: (id) => invoke('drop_at_cursor', { from: label, id }),
   hideQuick: () => invoke('hide_quick'),
+  focus: () => invoke('focus_state'),
+  /** 'start' | 'pause' | 'skip' | 'reset'; resolves to the new timer state. */
+  focusAction: (action) => invoke('focus_action', { action }),
+  focusMode: (mode) => invoke('focus_mode', { mode }),
+  /** Remembers the focus sound (null = silence) and its volume (0..1). */
+  focusPrefs: (sound, volume) => invoke('focus_prefs', { sound, volume }),
+  /** What the player widget shows, or null. */
+  media: () => invoke('media_state'),
+  /** 'toggle' | 'next' | 'prev'. */
+  mediaControl: (action) => invoke('media_control', { action }),
 };

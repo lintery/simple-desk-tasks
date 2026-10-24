@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus sounds</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f6f6f4; --fg: #222; --card: #fff; --line: #ccc; --on: #2f6fdd; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1d1e20; --fg: #e8e8e8; --card: #2a2b2e; --line: #444; --on: #5b8cff; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; opacity: .7; margin: 18px 0 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { font: inherit; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); cursor: pointer; }
+  button.on { border-color: var(--on); box-shadow: inset 0 0 0 1px var(--on); }
+  input[type=range] { width: 220px; }
+  #status, pre { font: 12px/1.45 ui-monospace, Consolas, monospace; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <div id="groups"></div>
+  <h2>Сигналы</h2>
+  <div class="row">
+    <button data-chime="focus-end">focus-end</button>
+    <button data-chime="break-end">break-end</button>
+    <button data-chime="start">start</button>
+  </div>
+  <h2>Управление</h2>
+  <div class="row">
+    <button id="stop">Стоп</button>
+    <label>Громкость <input id="vol" type="range" min="0" max="1" step="0.01"></label>
+    <span id="volv"></span>
+  </div>
+  <p id="status"></p>
+  <p><a href="?measure">Offline measurement</a> (renders every sound, prints peak / RMS / loudness)</p>
+</div>
+<pre id="out"></pre>
+<script type="module">
+import { SOUNDS, createAudio, buildMaster, buildSound, buildChime } from '../../ui/lib/sounds.js';
+
+const params = new URLSearchParams(location.search);
+
+if (!params.has('measure')) {
+  const audio = createAudio();
+  const groups = { rain: 'Дождь', noise: 'Шум', nature: 'Природа' };
+  const box = document.getElementById('groups');
+  for (const [g, title] of Object.entries(groups)) {
+    box.insertAdjacentHTML('beforeend', `<h2>${title}</h2><div class="row" data-group="${g}"></div>`);
+    for (const s of SOUNDS.filter((s) => s.group === g)) {
+      const b = document.createElement('button');
+      b.textContent = s.title; b.dataset.id = s.id;
+      b.onclick = () => audio.play(s.id);
+      box.querySelector(`[data-group="${g}"]`).append(b);
+    }
+  }
+  document.querySelectorAll('[data-chime]').forEach((b) => (b.onclick = () => audio.chime(b.dataset.chime)));
+  document.getElementById('stop').onclick = () => audio.stop();
+  const vol = document.getElementById('vol'), volv = document.getElementById('volv');
+  vol.value = audio.volume(); volv.textContent = (+vol.value).toFixed(2);
+  vol.oninput = () => { audio.setVolume(+vol.value); volv.textContent = (+vol.value).toFixed(2); };
+  setInterval(() => {
+    document.querySelectorAll('[data-id]').forEach((b) => b.classList.toggle('on', b.dataset.id === audio.current()));
+    document.getElementById('status').textContent = 'current: ' + audio.current() + '  ' + JSON.stringify(audio.stats());
+  }, 300);
+} else {
+  document.getElementById('ui').hidden = true;
+  const out = document.getElementById('out');
+  const log = (s) => { out.textContent += s + '\n'; };
+  // run after the module finished evaluating (helpers below are const)
+  setTimeout(async () => {
+    try { await measure(log); } catch (e) { log('ERROR ' + e.stack); }
+    document.body.dataset.done = '1';
+    document.title = 'done';
+  });
+}
+
+// ---- measurement helpers ------------------------------------------------
+function iir(x, b, a) {
+  const y = new Float32Array(x.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const y0 = b[0] * x[i] + b[1] * x1 + b[2] * x2 - a[1] * y1 - a[2] * y2;
+    x2 = x1; x1 = x[i]; y2 = y1; y1 = y0; y[i] = y0;
+  }
+  return y;
+}
+// ITU-R BS.1770 K-weighting, 48 kHz coefficients
+const kw = (x) => iir(iir(x, [1.53512485958697, -2.69169618940638, 1.19839281085285], [1, -1.69065929318241, 0.73248077421585]),
+  [1, -2, 1], [1, -1.99004745483398, 0.99007225036621]);
+function rbj(type, f, sr, Q = 0.707) {
+  const w = 2 * Math.PI * f / sr, c = Math.cos(w), al = Math.sin(w) / (2 * Q), a0 = 1 + al;
+  const b = type === 'lp' ? [(1 - c) / 2, 1 - c, (1 - c) / 2] : [(1 + c) / 2, -(1 + c), (1 + c) / 2];
+  return [b.map((v) => v / a0), [1, -2 * c / a0, (1 - al) / a0]];
+}
+const db = (x) => (x > 0 ? 20 * Math.log10(x) : -Infinity);
+const ms = (x) => { let e = 0; for (let i = 0; i < x.length; i++) e += x[i] * x[i]; return e / x.length; };
+
+function analyse(buf, from) {
+  const sr = buf.sampleRate, chs = [0, 1].map((c) => buf.getChannelData(c).subarray(Math.round(from * sr)));
+  let peak = 0;
+  for (const x of chs) for (let i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i]));
+  const rms = Math.sqrt((ms(chs[0]) + ms(chs[1])) / 2);
+  const k = chs.map(kw);
+  const lufs = -0.691 + 10 * Math.log10(ms(k[0]) + ms(k[1]));
+  // momentary loudness: 400 ms windows, 100 ms hop
+  const W = Math.round(0.4 * sr), H = Math.round(0.1 * sr);
+  let mMax = -Infinity, mMin = Infinity;
+  for (let s = 0; s + W <= k[0].length; s += H) {
+    const m = -0.691 + 10 * Math.log10(ms(k[0].subarray(s, s + W)) + ms(k[1].subarray(s, s + W)));
+    mMax = Math.max(mMax, m); mMin = Math.min(mMin, m);
+  }
+  // spectral balance: energy share below 250 Hz and above 2 kHz
+  const tot = ms(chs[0]) + ms(chs[1]);
+  const [lb, la] = rbj('lp', 250, sr), [hb, ha] = rbj('hp', 2000, sr);
+  const low = (ms(iir(chs[0], lb, la)) + ms(iir(chs[1], lb, la))) / tot;
+  const high = (ms(iir(chs[0], hb, ha)) + ms(iir(chs[1], hb, ha))) / tot;
+  // inter-channel correlation (stereo width sanity)
+  let xy = 0; for (let i = 0; i < chs[0].length; i++) xy += chs[0][i] * chs[1][i];
+  const corr = xy / chs[0].length / Math.sqrt(ms(chs[0]) * ms(chs[1]));
+  return { peak: db(peak), rms: db(rms), lufs, mMax, mMin, low, high, corr };
+}
+
+async function renderSound(id, secs, compressor = true, volume) {
+  const ctx = new OfflineAudioContext(2, 48000 * secs, 48000);
+  const m = buildMaster(ctx, { compressor });
+  if (volume != null) m.volume.gain.value = volume;
+  const v = buildSound(ctx, id, m.sounds, { t0: 0, firstThunder: 4 });
+  // emulate the live scheduler (tick every 0.2 s, 0.6 s lookahead) so the graph
+  // holds a realistic number of pending one-shots and render time reflects CPU cost
+  v.tick(0.6, 0);
+  for (let i = 1; i * 0.2 < secs; i++) {
+    const t = i * 0.2;
+    ctx.suspend(t).then(() => { v.tick(t + 0.6, t); ctx.resume(); });
+  }
+  const t = performance.now();
+  const buf = await ctx.startRendering();
+  return { buf, ms: performance.now() - t, nodes: v.nodes.length, shots: v.live.size };
+}
+
+const f1 = (x) => (Number.isFinite(x) ? x.toFixed(1) : String(x)).padStart(6);
+const pc = (x) => (100 * x).toFixed(0).padStart(4) + '%';
+
+async function measure(log) {
+  const SECS = 30, FROM = 3;
+  log(`Offline render ${SECS} s @48 kHz, master volume default (0.6 -> gain 0.36), analysed from ${FROM} s`);
+  log('id            peak  peakNC    rms   LUFS  momMax momMin   <250  >2k   corr  persist  shots  render');
+  for (const s of SOUNDS) {
+    const r = await renderSound(s.id, SECS);
+    const a = analyse(r.buf, FROM);
+    const nc = analyse((await renderSound(s.id, SECS, false)).buf, FROM);
+    log(`${s.id.padEnd(12)} ${f1(a.peak)}  ${f1(nc.peak)} ${f1(a.rms)} ${f1(a.lufs)} ${f1(a.mMax)} ${f1(a.mMin)}  ${pc(a.low)} ${pc(a.high)}  ${a.corr.toFixed(2).padStart(5)}  ${String(r.nodes).padStart(5)}  ${String(r.shots).padStart(5)}  ${(r.ms | 0)} ms`);
+  }
+  // volume 1 worst case
+  log('\nAt volume 1.0 (gain 1):');
+  for (const id of ['rain-heavy', 'rain-thunder', 'brown', 'waves', 'fire']) {
+    const a = analyse((await renderSound(id, SECS, true, 1)).buf, FROM);
+    log(`${id.padEnd(12)} peak ${f1(a.peak)}  LUFS ${f1(a.lufs)}  momMax ${f1(a.mMax)}`);
+  }
+  log('\nChimes (alone, default volume):');
+  for (const kind of ['focus-end', 'break-end', 'start']) {
+    const ctx = new OfflineAudioContext(2, 48000 * 4, 48000);
+    const m = buildMaster(ctx);
+    const c = buildChime(ctx, m.chimes, kind, 0.1);
+    const buf = await ctx.startRendering();
+    const a = analyse(buf, 0);
+    log(`${kind.padEnd(12)} peak ${f1(a.peak)}  momMax ${f1(a.mMax)}  length ${(c.end - 0.1).toFixed(2)} s  nodes ${c.nodes.length}`);
+  }
+  if (params.has('leak')) await leakTest(log);
+}
+
+// Live engine: switch sounds rapidly, chime, stop; everything must be released.
+async function leakTest(log) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const audio = createAudio();
+  log('\nLeak test (live AudioContext):');
+  for (let round = 0; round < 3; round++) {
+    for (const s of SOUNDS) { audio.play(s.id); if (Math.random() < 0.3) audio.chime('start'); await sleep(150); }
+  }
+  log('  while switching: ' + JSON.stringify(audio.stats()));
+  audio.play('rain-heavy'); await sleep(3000);
+  log('  rain-heavy 3 s:  ' + JSON.stringify(audio.stats()));
+  audio.chime('focus-end'); audio.stop(); audio.stop();
+  await sleep(1000);
+  log('  1 s after stop:  ' + JSON.stringify(audio.stats()));
+  await sleep(5500);
+  log('  6.5 s after stop: ' + JSON.stringify(audio.stats()));
+  await sleep(2500);
+  log('  9 s after stop:   ' + JSON.stringify(audio.stats()) + ' (context should be suspended)');
+  audio.dispose();
+  log('  after dispose:   ' + JSON.stringify(audio.stats()));
+}
+</script>
+</body>
+</html>

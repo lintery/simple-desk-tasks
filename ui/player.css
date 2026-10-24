@@ -1,0 +1,39 @@
+/* «Плеер»: what's playing in Spotify or another player, a 340×120 card. */
+.w.pl{flex-direction:row;gap:14px;padding:14px}
+.pl-art{position:relative;flex:none;width:92px;height:92px;border-radius:var(--r-row);overflow:hidden;
+  background:linear-gradient(165deg,#323e78 0%,#5b4f8f 55%,#8e6f9a 100%) center/cover no-repeat;
+  box-shadow:0 0 0 1px rgba(255,255,255,.06),0 6px 16px -6px rgba(0,0,0,.6);transition:filter var(--d3) var(--e-out)}
+.pl-art .i{position:absolute;inset:0;margin:auto;width:28px;height:28px;color:rgba(255,255,255,.55)}
+.pl-art.has-cover .i{display:none}
+.pl.paused .pl-art{filter:saturate(.55) brightness(.82)}
+.pl-body{flex:1;min-width:0;display:flex;flex-direction:column}
+.pl-top{display:flex;align-items:center;gap:8px;height:18px}
+.pl-ttl{flex:1;min-width:0;font:600 13.5px/18px var(--font-d);letter-spacing:-.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-top .wave{height:12px;gap:1.5px;flex:none}
+.pl.paused .pl-top .wave{display:none}
+.pl-who{display:flex;align-items:center;gap:8px;margin-top:3px;height:18px;font-size:12px;color:var(--t3);white-space:nowrap}
+.pl-who>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.pl-src{flex:none;display:inline-flex;align-items:center;gap:4px;height:18px;max-width:110px;padding:0 6px 0 5px;border-radius:4px;
+  overflow:hidden;font-size:10.5px;font-weight:600;color:var(--t3);background:rgba(255,255,255,.06)}
+.pl-src .i{width:11px;height:11px}
+.pl-bar{position:relative;margin-top:auto;height:3px;border-radius:2px;background:rgba(255,255,255,.09)}
+.pl-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--t2)}
+.pl-bar i::after{content:"";position:absolute;right:-4px;top:-2.5px;width:8px;height:8px;border-radius:50%;background:var(--t1);
+  box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.pl.paused .pl-bar i{background:var(--t4)}
+.pl.paused .pl-bar i::after{background:var(--t3)}
+.pl-row{display:flex;align-items:center;justify-content:space-between;height:30px;margin-top:9px}
+.pl.no-time .pl-bar{visibility:hidden}
+.pl.no-time .pl-t{visibility:hidden}
+.pl-t{width:34px;font-size:11px;line-height:14px;color:var(--t3);font-variant-numeric:tabular-nums}
+.pl-t:last-child{text-align:right}
+.pl-ctl{display:flex;align-items:center;gap:6px}
+.pl button svg{pointer-events:none}
+.pl-ctl .ib{width:26px;height:26px;color:var(--t2)}
+.pl-ctl .ib .i{width:13px;height:13px}
+.pl-ctl .ib:disabled{opacity:.35;pointer-events:none}
+.pl-pp{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:var(--ink);background:var(--t1);
+  box-shadow:0 4px 12px -4px rgba(0,0,0,.6);transition:transform var(--d1) var(--e-out)}
+.pl-pp:active{transform:scale(.92)}
+.pl-pp .i{width:14px;height:14px}
+.pl.paused .pl-ttl{color:var(--t2)}

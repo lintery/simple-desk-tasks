@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Widgets and quick-add window",
-  "windows": ["today", "nodate", "upcoming", "quick"],
+  "windows": ["today", "nodate", "upcoming", "focus", "player", "quick"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

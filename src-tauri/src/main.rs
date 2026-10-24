@@ -3,7 +3,9 @@
 mod backdrop;
 mod backup;
 mod desktop;
+mod focus;
 mod layout;
+mod media;
 mod notify;
 mod selection;
 mod store;
@@ -19,9 +21,15 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-/// Widget windows: label and title, in default left-to-right order.
-pub const WIDGETS: [(&str, &str); 3] =
-    [("today", "Сегодня"), ("upcoming", "Предстоящие"), ("nodate", "Без срока")];
+/// Widget windows: label and title; the task lists left to right, then the
+/// focus strip under them and the player card under «Без срока».
+pub const WIDGETS: [(&str, &str); 5] = [
+    ("today", "Сегодня"),
+    ("upcoming", "Предстоящие"),
+    ("nodate", "Без срока"),
+    (focus::LABEL, "Фокус"),
+    (media::LABEL, "Плеер"),
+];
 const QUICK: &str = "quick";
 /// Card is 600×~136; the rest is a transparent margin for its shadow.
 const QUICK_SIZE: (f64, f64) = (640.0, 180.0);
@@ -39,8 +47,9 @@ static CAPTURING: AtomicBool = AtomicBool::new(false);
 static DRAGGING: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
 use layout::MOVABLE;
 /// Same for every window (WebView2 shares one browser process only when the
-/// args match). Tauri's defaults plus one renderer for all our same-origin pages.
-const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site --disable-gpu";
+/// args match). Tauri's defaults plus one renderer for all our same-origin pages;
+/// sound may start without a click, so a phase-end chime plays after a restart.
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site --disable-gpu --autoplay-policy=no-user-gesture-required";
 
 fn main() {
     desktop::set_app_id();
@@ -65,6 +74,12 @@ fn main() {
             store::restore_task,
             store::store_status,
             desktop::open_url,
+            focus::focus_state,
+            focus::focus_action,
+            focus::focus_mode,
+            focus::focus_prefs,
+            media::media_state,
+            media::media_control,
             hide_quick,
             hotkey_label,
             widgets_movable,
@@ -77,6 +92,7 @@ fn main() {
             std::fs::create_dir_all(&data_dir)?;
             app.manage(store::Store::load(data_dir.join("tasks.json")));
             app.manage(layout::Layout::load(data_dir.join("layout.json")));
+            app.manage(focus::Focus::load(data_dir.join("focus.json")));
             desktop::register_autostart();
             desktop::register_toast_app(&data_dir);
 
@@ -99,6 +115,8 @@ fn main() {
             backdrop::spawn_watcher(handle.clone(), &WIDGETS);
             notify::spawn(handle.clone());
             store::spawn_retry(handle.clone());
+            focus::spawn(handle.clone());
+            media::spawn(handle.clone());
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -106,7 +124,13 @@ fn main() {
 }
 
 fn create_widget(app: &AppHandle, label: &str, title: &str) -> tauri::Result<()> {
-    let win = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+    let page = match label {
+        focus::LABEL => "focus.html",
+        media::LABEL => "player.html",
+        _ => "index.html",
+    };
+    let (min_w, min_h) = layout::min_size(label);
+    let win = WebviewWindowBuilder::new(app, label, WebviewUrl::App(page.into()))
         .additional_browser_args(BROWSER_ARGS)
         // Tasks are dragged between widgets with HTML drag & drop, which
         // Tauri's own file-drop handler would swallow.
@@ -125,7 +149,7 @@ fn create_widget(app: &AppHandle, label: &str, title: &str) -> tauri::Result<()>
         .always_on_bottom(true)
         .visible(false)
         .focused(false)
-        .min_inner_size(240.0, 160.0)
+        .min_inner_size(min_w, min_h)
         .inner_size(340.0, 480.0)
         .build()?;
     desktop::pin_to_desktop(&win);
