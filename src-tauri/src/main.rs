@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backdrop;
+mod backup;
 mod desktop;
 mod layout;
 mod notify;
@@ -318,6 +319,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "reset" => layout::reset(app),
             "quit" => {
                 app.state::<layout::Layout>().flush();
+                app.state::<store::Store>().flush_backup();
                 app.exit(0);
             }
             _ => {}

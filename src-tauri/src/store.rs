@@ -17,6 +17,8 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::backup::{self, Backup};
+
 /// Completed tasks are kept this long (for "done today" stats), then dropped.
 const KEEP_DONE_MS: i64 = 14 * 24 * 60 * 60 * 1000;
 
@@ -60,6 +62,7 @@ pub struct Store {
     /// Why tasks.json couldn't be read; while set, nothing is saved (it would wipe
     /// the file) and a background retry keeps trying to load it.
     error: Mutex<Option<String>>,
+    backup: Backup,
 }
 
 pub fn now_ms() -> i64 {
@@ -83,6 +86,51 @@ fn read_file(path: &Path, attempts: u32) -> io::Result<Option<Vec<u8>>> {
     Err(last.expect("at least one attempt"))
 }
 
+fn parse_tasks(bytes: &[u8]) -> serde_json::Result<Vec<Task>> {
+    let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    let data: FileData = serde_json::from_slice(body)?;
+    let cutoff = now_ms() - KEEP_DONE_MS;
+    Ok(data.tasks.into_iter().filter(|t| !t.done || t.done_at.unwrap_or(0) >= cutoff).collect())
+}
+
+fn to_json(tasks: &[Task]) -> Result<String, String> {
+    serde_json::to_string_pretty(&FileData { tasks: tasks.to_vec() }).map_err(|e| e.to_string())
+}
+
+fn is_missing(path: &Path) -> bool {
+    matches!(fs::metadata(path), Err(e) if e.kind() == io::ErrorKind::NotFound)
+}
+
+/// What the store starts from.
+enum Loaded {
+    File(Vec<Task>),
+    Restored(PathBuf, Vec<Task>),
+    Empty,
+}
+
+/// tasks.json, or the newest backup snapshot that parses when tasks.json is gone
+/// (deleted, or a broken one set aside by `read_tasks`). Errors while a snapshot
+/// can't be read: better to wait than to start from an older copy or from nothing.
+fn load_or_restore(path: &Path, attempts: u32) -> Result<Loaded, String> {
+    let tasks = read_tasks(path, attempts)?;
+    if !is_missing(path) {
+        return Ok(Loaded::File(tasks));
+    }
+    let unreadable = |e: io::Error| format!("tasks.json нет, а бэкап на D: не читается: {e}");
+    for snapshot in backup::snapshots().map_err(unreadable)? {
+        match read_file(&snapshot, 3) {
+            Ok(Some(bytes)) => {
+                if let Ok(tasks) = parse_tasks(&bytes) {
+                    return Ok(Loaded::Restored(snapshot, tasks));
+                }
+            }
+            Ok(None) => {} // pruned meanwhile
+            Err(e) => return Err(unreadable(e)),
+        }
+    }
+    Ok(Loaded::Empty)
+}
+
 /// Tasks from disk, or why they can't be loaded (then nothing may be saved).
 fn read_tasks(path: &Path, attempts: u32) -> Result<Vec<Task>, String> {
     let bytes = match read_file(path, attempts) {
@@ -90,12 +138,8 @@ fn read_tasks(path: &Path, attempts: u32) -> Result<Vec<Task>, String> {
         Ok(Some(b)) => b,
         Err(e) => return Err(format!("tasks.json не открывается: {e}")),
     };
-    let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
-    match serde_json::from_slice::<FileData>(body) {
-        Ok(d) => {
-            let cutoff = now_ms() - KEEP_DONE_MS;
-            Ok(d.tasks.into_iter().filter(|t| !t.done || t.done_at.unwrap_or(0) >= cutoff).collect())
-        }
+    match parse_tasks(&bytes) {
+        Ok(tasks) => Ok(tasks),
         Err(e) => {
             // Keep the broken file instead of silently overwriting it.
             let backup = path.with_extension(format!("broken-{}.json", now_ms()));
@@ -112,19 +156,54 @@ fn read_tasks(path: &Path, attempts: u32) -> Result<Vec<Task>, String> {
 
 impl Store {
     pub fn load(path: PathBuf) -> Self {
-        let (tasks, error) = match read_tasks(&path, 10) {
-            Ok(t) => (t, None),
-            Err(e) => (Vec::new(), Some(e)),
+        let loaded = load_or_restore(&path, 10);
+        let store = Store {
+            path,
+            tasks: Mutex::new(Vec::new()),
+            seq: AtomicU32::new(0),
+            error: Mutex::new(loaded.as_ref().err().cloned()),
+            backup: Backup::start(),
         };
-        Store { path, tasks: Mutex::new(tasks), seq: AtomicU32::new(0), error: Mutex::new(error) }
+        if let Ok(loaded) = loaded {
+            let mut tasks = store.tasks.lock().unwrap();
+            store.adopt(&mut tasks, loaded);
+        }
+        store
+    }
+
+    /// Puts freshly loaded tasks in place; `tasks` is the locked list and saving
+    /// is enabled.
+    fn adopt(&self, tasks: &mut Vec<Task>, loaded: Loaded) {
+        match loaded {
+            Loaded::File(loaded) => {
+                // Today gets a snapshot even if nothing changes.
+                if let Ok(json) = to_json(&loaded) {
+                    self.backup.push_initial(json);
+                }
+                *tasks = loaded;
+            }
+            Loaded::Restored(from, restored) => {
+                eprintln!("tasks.json is missing, restored from {from:?}");
+                if let Err(e) = self.save(&restored) {
+                    eprintln!("restored tasks not saved yet: {e}");
+                }
+                // Kept even if unsaved: the next change writes them.
+                *tasks = restored;
+            }
+            Loaded::Empty => tasks.clear(),
+        }
+    }
+
+    /// Waits briefly for the backup drive to get the latest state (on quit).
+    pub fn flush_backup(&self) {
+        self.backup.flush(Duration::from_secs(3));
     }
 
     pub fn save(&self, tasks: &[Task]) -> Result<(), String> {
         if let Some(e) = self.error.lock().unwrap().as_ref() {
             return Err(format!("Не сохранено: {e}"));
         }
-        let json = serde_json::to_string_pretty(&FileData { tasks: tasks.to_vec() })
-            .map_err(|e| e.to_string())?;
+        let json = to_json(tasks)?;
         let tmp = self.path.with_extension("json.tmp");
         {
             let mut f = fs::File::create(&tmp).map_err(|e| e.to_string())?;
@@ -137,7 +216,10 @@ impl Store {
                 thread::sleep(Duration::from_millis(100));
             }
             match fs::rename(&tmp, &self.path) {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    self.backup.push(json);
+                    return Ok(());
+                }
                 Err(e) => last = e.to_string(), // file briefly held by AV/indexer
             }
         }
@@ -220,10 +302,10 @@ pub fn spawn_retry(app: AppHandle) {
         if store.error.lock().unwrap().is_none() {
             continue;
         }
-        if let Ok(loaded) = read_tasks(&store.path, 1) {
+        if let Ok(loaded) = load_or_restore(&store.path, 1) {
             let mut tasks = store.tasks.lock().unwrap();
-            *tasks = loaded;
             *store.error.lock().unwrap() = None;
+            store.adopt(&mut tasks, loaded);
             let _ = app.emit("tasks-changed", &*tasks);
             let _ = app.emit("store-status", None::<String>);
         }
