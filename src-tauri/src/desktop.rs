@@ -1,15 +1,24 @@
 //! Windows integration: desktop layer, backdrop, autostart, toast identity.
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use std::path::Path;
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 use tauri::WebviewWindow;
 use windows::{
     core::{w, HSTRING, PCWSTR},
     Win32::{
-        Foundation::{HWND, POINT},
+        Foundation::{ERROR_TIMEOUT, HWND, POINT},
+        System::Com::{
+            CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+        },
         UI::{
             Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON},
-            Shell::{SetCurrentProcessExplicitAppUserModelID, ShellExecuteW},
+            Shell::{
+                FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName, SetCurrentProcessExplicitAppUserModelID,
+                ShellExecuteW, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+            },
             WindowsAndMessaging::{
                 FindWindowW, GetAncestor, GetCursorPos, GetSystemMetrics, GetWindowLongPtrW, SetWindowLongPtrW,
                 WindowFromPoint, GA_ROOT, GWLP_HWNDPARENT, SM_SWAPBUTTON, SW_SHOWNORMAL,
@@ -17,6 +26,7 @@ use windows::{
         },
     },
 };
+use windows_future::{AsyncStatus, IAsyncOperationWithProgress};
 use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
 pub const APP_ID: &str = "DeskTasks.Widgets";
@@ -105,17 +115,68 @@ pub fn register_toast_app(data_dir: &Path) {
     }
 }
 
-/// Starts the app with Windows. Only the installed copy (`DeskTasks.exe`,
-/// see tools/install.ps1) registers; raw build output (`desk-tasks.exe`) never does.
-pub fn register_autostart() {
+/// Starts the app with Windows, or stops doing so. Only the installed copy
+/// (`DeskTasks.exe`, see tools/install.ps1) touches it; raw build output
+/// (`desk-tasks.exe`) never does.
+pub fn set_autostart(on: bool) {
     let Ok(path) = std::env::current_exe() else { return };
     let installed = path.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("DeskTasks.exe"));
     if !installed {
         return;
     }
-    let exe = path.to_string_lossy().to_string();
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    if let Ok((key, _)) = hkcu.create_subkey(RUN_KEY) {
-        let _ = key.set_value(RUN_VALUE, &format!("\"{exe}\""));
+    let Ok((key, _)) = hkcu.create_subkey(RUN_KEY) else { return };
+    if on {
+        let _ = key.set_value(RUN_VALUE, &format!("\"{}\"", path.to_string_lossy()));
+    } else {
+        let _ = key.delete_value(RUN_VALUE);
     }
+}
+
+/// Asks for a folder with the standard Windows dialog; `None` if cancelled.
+/// Runs on its own STA thread (the shell dialog needs one).
+pub fn pick_folder(owner: Option<isize>, start: Option<String>) -> Option<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // SAFETY: COM on a fresh thread; every interface is released before it ends.
+        let picked = unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let picked = (|| -> windows::core::Result<String> {
+                let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
+                dialog.SetOptions(dialog.GetOptions()? | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM)?;
+                if let Some(start) = start.filter(|s| Path::new(s).is_dir()) {
+                    if let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(&HSTRING::from(start), None) {
+                        let _ = dialog.SetFolder(&item);
+                    }
+                }
+                dialog.Show(owner.map(hwnd_from))?;
+                let name = dialog.GetResult()?.GetDisplayName(SIGDN_FILESYSPATH)?;
+                let path = name.to_string();
+                CoTaskMemFree(Some(name.0 as *const _));
+                Ok(path?)
+            })();
+            CoUninitialize();
+            picked.ok()
+        };
+        let _ = tx.send(picked);
+    });
+    rx.recv().ok().flatten()
+}
+
+/// Waits for a WinRT operation (an HTTP request, a read), cancelling it after
+/// `timeout` so a stalled server can't hang the caller's thread.
+pub fn finish<T, P>(op: IAsyncOperationWithProgress<T, P>, timeout: Duration) -> windows::core::Result<T>
+where
+    T: windows::core::RuntimeType + 'static,
+    P: windows::core::RuntimeType + 'static,
+{
+    let until = Instant::now() + timeout;
+    while op.Status()? == AsyncStatus::Started {
+        if Instant::now() >= until {
+            let _ = op.Cancel();
+            return Err(windows::core::Error::new(ERROR_TIMEOUT.to_hresult(), "сервер не ответил вовремя"));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    op.GetResults()
 }

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Календарь</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="calendar.css">
+<script type="module" src="calendar.js"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-sync" viewBox="0 0 16 16"><path d="M13.2 8a5.2 5.2 0 0 1-9.1 3.4M2.8 8a5.2 5.2 0 0 1 9.1-3.4M12.2 2.2v2.6H9.6M3.8 13.8v-2.6h2.6"/></symbol>
+  <symbol id="i-l" viewBox="0 0 16 16"><path d="M9.8 3.6 5.4 8l4.4 4.4"/></symbol>
+  <symbol id="i-r" viewBox="0 0 16 16"><path d="M6.2 3.6 10.6 8l-4.4 4.4"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 16 16"><path d="M8 14.2s-4.6-4.1-4.6-7.4a4.6 4.6 0 0 1 9.2 0c0 3.3-4.6 7.4-4.6 7.4Z"/><circle cx="8" cy="6.8" r="1.6"/></symbol>
+  <symbol id="i-vid" viewBox="0 0 16 16"><path d="M2.6 4.4h6.8a1.3 1.3 0 0 1 1.3 1.3v4.6a1.3 1.3 0 0 1-1.3 1.3H2.6a1.3 1.3 0 0 1-1.3-1.3V5.7a1.3 1.3 0 0 1 1.3-1.3ZM10.7 7.1l3.1-1.9a.4.4 0 0 1 .6.35v4.9a.4.4 0 0 1-.6.35l-3.1-1.9"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 16 16"><path d="M3.4 3.4h9.2a1.2 1.2 0 0 1 1.2 1.2v8.2a1.2 1.2 0 0 1-1.2 1.2H3.4a1.2 1.2 0 0 1-1.2-1.2V4.6a1.2 1.2 0 0 1 1.2-1.2ZM2.2 6.8h11.6M5.4 1.8v3M10.6 1.8v3"/><path class="f" d="M4.8 9h1.4v1.4H4.8ZM7.3 9h1.4v1.4H7.3ZM9.8 9h1.4v1.4H9.8ZM4.8 11.3h1.4v1.4H4.8ZM7.3 11.3h1.4v1.4H7.3Z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M7.1 2.9 1.9 12a1 1 0 0 0 .87 1.5h10.46A1 1 0 0 0 14.1 12L8.9 2.9a1 1 0 0 0-1.8 0ZM8 6.4v3.1M8 11.5v.1"/></symbol>
+  <symbol id="i-dot" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/></symbol>
+</svg>
+<div class="w cal" id="w">
+  <canvas class="wall"></canvas>
+  <header class="hd" id="hd">
+    <div class="ttl"><h2>Календарь</h2><span id="today"></span></div>
+    <button class="cnt sync" id="sync" hidden></button>
+  </header>
+  <div id="state"></div>
+  <section class="mo">
+    <div class="mo-hd"><b id="month"></b><span id="year"></span>
+      <div class="mo-nav">
+        <button class="ib" id="prev" title="Предыдущий месяц"><svg class="i"><use href="#i-l"/></svg></button>
+        <button class="ib" id="next" title="Следующий месяц"><svg class="i"><use href="#i-r"/></svg></button>
+      </div>
+    </div>
+    <div class="mo-g" id="grid"></div>
+  </section>
+  <div class="mo-sep" id="sep"></div>
+  <div class="list ag" id="agenda"></div>
+</div>
+</body>
+</html>

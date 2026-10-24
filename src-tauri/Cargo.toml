@@ -1,6 +1,6 @@
 [package]
 name = "desk-tasks"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 rust-version = "1.87"
 resolver = "3"
@@ -18,6 +18,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 raw-window-handle = "0.6"
+minisign-verify = "0.3"
+# WinRT async operations (the same version `windows` uses)
+windows-future = "0.2"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
@@ -33,10 +36,17 @@ windows = { version = "0.61", features = [
     "Win32_System_Variant",
     "Win32_System_Threading",
     "Win32_Media_Audio",
+    "Win32_UI_Shell_Common",
     "Foundation",
     "Foundation_Collections",
+    "Media",
     "Media_Control",
     "Storage_Streams",
+    "Web_Http",
+    "Web_Http_Headers",
+    "Web_Http_Filters",
+    "Data_Xml_Dom",
+    "Win32_Security_Credentials",
 ] }
 
 [profile.release]

@@ -92,6 +92,32 @@
   background:var(--ac);box-shadow:0 0 0 3px var(--ac-soft)}
 .tiles{flex:1;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:60px 60px;gap:6px}
 .tile span{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+/* A sound in the mix: its own level as a thin bar along the tile's bottom. */
+.tile::after{content:"";position:absolute;left:11px;right:10px;bottom:5px;height:2px;border-radius:1px;opacity:0;
+  background:linear-gradient(90deg,var(--ac) calc(var(--lvl,0) * 100%),rgba(255,255,255,.08) 0);transition:opacity var(--d2)}
+.tile.on::after{opacity:.9}
+.tile.sel::after{opacity:.45;filter:grayscale(1)}
+
+/* stats: the last seven days, opened from «сегодня …» */
+.fx-hd .today{cursor:pointer;border-radius:4px;transition:color var(--d1)}
+.fx-hd .today:hover{color:var(--t2)}
+.fx-hd .today:hover em{color:var(--t1)}
+.stats{display:none;flex:1;gap:22px;align-items:stretch;height:126px}
+.fx.show-stats .snd-body{display:none}
+.fx.show-stats .stats{display:flex}
+.bars{flex:1;display:flex;align-items:flex-end;gap:10px;padding:0 4px}
+.bar{flex:1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;min-width:0}
+.bar b{font-size:10.5px;line-height:13px;font-weight:500;color:var(--t3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar i{width:100%;max-width:34px;min-height:3px;border-radius:4px 4px 2px 2px;background:rgba(255,255,255,.1)}
+.bar.has i{background:linear-gradient(180deg,rgba(142,159,255,.75),rgba(142,159,255,.35))}
+.bar.today i{background:linear-gradient(180deg,var(--ac),rgba(142,159,255,.55));box-shadow:0 0 10px -2px var(--ac-line)}
+.bar span{font-size:11px;line-height:14px;color:var(--t4)}
+.bar.today span{color:var(--t1);font-weight:600}
+.sums{flex:none;width:150px;display:flex;flex-direction:column;justify-content:center;gap:12px;padding-left:20px;
+  border-left:1px solid var(--line)}
+.sums div{display:flex;flex-direction:column;gap:1px}
+.sums small{font-size:11px;line-height:14px;color:var(--t4)}
+.sums b{font:600 15px/20px var(--font-d);color:var(--t1);font-variant-numeric:tabular-nums}
 .tile{position:relative;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;padding:9px 10px 8px 11px;
   border-radius:var(--r-row);text-align:left;color:var(--t2);background:var(--raise);
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.03),inset 0 1px 0 rgba(255,255,255,.04);

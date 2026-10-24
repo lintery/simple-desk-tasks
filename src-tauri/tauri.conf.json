@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Desk Tasks",
-  "version": "1.0.0",
   "identifier": "app.desktasks.widgets",
   "build": {
     "frontendDist": "../ui"

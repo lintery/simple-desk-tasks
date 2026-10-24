@@ -2,13 +2,17 @@
 
 mod backdrop;
 mod backup;
+mod calendar;
 mod desktop;
 mod focus;
+mod ical;
 mod layout;
 mod media;
 mod notify;
 mod selection;
+mod settings;
 mod store;
+mod updater;
 
 use std::sync::{
     atomic::{AtomicBool, AtomicI64, Ordering},
@@ -21,16 +25,21 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-/// Widget windows: label and title; the task lists left to right, then the
-/// focus strip under them and the player card under «Без срока».
-pub const WIDGETS: [(&str, &str); 5] = [
+/// Widget windows: label and title; the task lists left to right, the focus
+/// strip under them, the player card under «Без срока», the calendar on the right.
+pub const WIDGETS: [(&str, &str); 6] = [
     ("today", "Сегодня"),
     ("upcoming", "Предстоящие"),
     ("nodate", "Без срока"),
     (focus::LABEL, "Фокус"),
     (media::LABEL, "Плеер"),
+    (calendar::LABEL, "Календарь"),
 ];
 const QUICK: &str = "quick";
+/// The settings window: an ordinary window, created when opened and freed on close.
+const SETTINGS: &str = "settings";
+/// Section the settings window should open at (e.g. "calendar").
+static SETTINGS_SECTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 /// Card is 600×~136; the rest is a transparent margin for its shadow.
 const QUICK_SIZE: (f64, f64) = (640.0, 180.0);
 /// Quick-add hotkeys in order of preference; the first free one is used.
@@ -52,6 +61,9 @@ use layout::MOVABLE;
 const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site --disable-gpu --autoplay-policy=no-user-gesture-required";
 
 fn main() {
+    // Before the single-instance check: the version we replaced may still be
+    // closing, or a new version may have failed to start and needs rolling back.
+    let updated_to = updater::startup();
     desktop::set_app_id();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| layout::place_all(app)))
@@ -80,20 +92,37 @@ fn main() {
             focus::focus_prefs,
             media::media_state,
             media::media_control,
+            settings::get_settings,
+            settings::set_settings,
+            show_settings,
+            take_settings_section,
+            pick_folder,
+            app_version,
+            calendar::calendar_state,
+            calendar::calendar_connect,
+            calendar::calendar_disconnect,
+            calendar::calendar_refresh,
+            updater::update_status,
+            updater::update_check,
+            updater::update_install,
             hide_quick,
             hotkey_label,
             widgets_movable,
             task_drag,
             drop_at_cursor,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle();
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            // First: the store (backup folder) and the timer (durations) read them.
+            settings::load(data_dir.join("settings.json"));
             app.manage(store::Store::load(data_dir.join("tasks.json")));
             app.manage(layout::Layout::load(data_dir.join("layout.json")));
             app.manage(focus::Focus::load(data_dir.join("focus.json")));
-            desktop::register_autostart();
+            if !settings::locked() {
+                desktop::set_autostart(settings::get().autostart);
+            }
             desktop::register_toast_app(&data_dir);
 
             for (label, title) in WIDGETS {
@@ -117,6 +146,12 @@ fn main() {
             store::spawn_retry(handle.clone());
             focus::spawn(handle.clone());
             media::spawn(handle.clone());
+            updater::spawn(handle.clone());
+            calendar::spawn(handle.clone());
+            if let Some(version) = &updated_to {
+                updater::announce_updated(version);
+            }
+            updater::confirm();
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -127,6 +162,7 @@ fn create_widget(app: &AppHandle, label: &str, title: &str) -> tauri::Result<()>
     let page = match label {
         focus::LABEL => "focus.html",
         media::LABEL => "player.html",
+        calendar::LABEL => "calendar.html",
         _ => "index.html",
     };
     let (min_w, min_h) = layout::min_size(label);
@@ -249,6 +285,53 @@ fn show_quick(app: &AppHandle, text: Option<String>) {
     let _ = win.emit_to(QUICK, "quick-open", text);
 }
 
+/// Opens the settings window (or brings it forward), optionally at a section.
+fn open_settings(app: &AppHandle, section: Option<&str>) -> tauri::Result<()> {
+    *SETTINGS_SECTION.lock().unwrap() = section.map(str::to_string);
+    if let Some(win) = app.get_webview_window(SETTINGS) {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+        let _ = win.emit_to(SETTINGS, "settings-section", section);
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(app, SETTINGS, WebviewUrl::App("settings.html".into()))
+        .additional_browser_args(BROWSER_ARGS)
+        .on_navigation(|url| url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost"))
+        .title("Настройки · Задачи")
+        .inner_size(560.0, 660.0)
+        .resizable(false)
+        .maximizable(false)
+        .theme(Some(tauri::Theme::Dark))
+        .background_color(tauri::window::Color(23, 23, 26, 255))
+        .center()
+        .build()?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn show_settings(app: AppHandle, section: Option<String>) -> Result<(), String> {
+    open_settings(&app, section.as_deref()).map_err(|e| e.to_string())
+}
+
+/// The section the settings window was opened for, once.
+#[tauri::command]
+fn take_settings_section() -> Option<String> {
+    SETTINGS_SECTION.lock().unwrap().take()
+}
+
+/// A folder picked in the standard dialog (owned by the settings window).
+#[tauri::command]
+async fn pick_folder(app: AppHandle, start: Option<String>) -> Option<String> {
+    let owner = app.get_webview_window(SETTINGS).and_then(|w| desktop::hwnd_value(&w));
+    tauri::async_runtime::spawn_blocking(move || desktop::pick_folder(owner, start)).await.ok().flatten()
+}
+
+#[tauri::command]
+fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 #[tauri::command]
 fn hide_quick(app: AppHandle) {
     if let Some(win) = app.get_webview_window(QUICK) {
@@ -328,9 +411,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Показать виджеты", true, None::<&str>)?;
     let movable = CheckMenuItem::with_id(app, "movable", "Разрешить перемещение", true, false, None::<&str>)?;
     let reset = MenuItem::with_id(app, "reset", "Расставить по умолчанию", true, None::<&str>)?;
+    let prefs = MenuItem::with_id(app, "settings", "Настройки…", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&add, &show, &movable, &reset, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&add, &show, &movable, &reset, &prefs, &sep, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Задачи")
         .menu(&menu)
@@ -341,9 +425,14 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             // The check mark toggles itself on click; mirror its new state.
             "movable" => set_movable(app, movable.is_checked().unwrap_or(false)),
             "reset" => layout::reset(app),
+            "settings" => {
+                let _ = open_settings(app, None);
+            }
             "quit" => {
                 app.state::<layout::Layout>().flush();
                 app.state::<store::Store>().flush_backup();
+                // Quit by hand: an updated version on trial evidently works.
+                updater::keep();
                 app.exit(0);
             }
             _ => {}

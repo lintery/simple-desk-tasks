@@ -58,6 +58,7 @@ const FOCUS_H: f64 = 200.0;
 pub fn min_size(label: &str) -> (f64, f64) {
     match label {
         crate::media::LABEL => (240.0, 100.0),
+        crate::calendar::LABEL => (260.0, 300.0),
         // dial, controls and four sound tiles; the dial needs the full height
         crate::focus::LABEL => (900.0, FOCUS_H),
         _ => (240.0, 160.0),
@@ -136,13 +137,21 @@ fn default_geom(label: &str, m: &Monitor) -> Geom {
     // The columns leave room for the focus strip under them.
     let tall = (area_h - 2.0 * MARGIN - GAP - FOCUS_H).clamp(160.0, 560.0);
     let nodate_h = (tall - GAP - PLAYER_H).max(160.0);
-    let column = |i: f64| MARGIN + i * (WIDTH + GAP);
+    // On a narrow screen the columns give up width so the calendar still fits,
+    // but not below what keeps the focus strip at its smallest.
+    let area_w = wa.size.width as f64 / s;
+    let (cal_min_w, _) = min_size(crate::calendar::LABEL);
+    let (focus_min_w, _) = min_size(crate::focus::LABEL);
+    let width = ((area_w - 2.0 * MARGIN - 3.0 * GAP - cal_min_w) / 3.0).clamp((focus_min_w - 2.0 * GAP) / 3.0, WIDTH);
+    let column = |i: f64| MARGIN + i * (width + GAP);
     match label {
-        "upcoming" => Geom { x: column(1.0), y: MARGIN, w: WIDTH, h: tall },
-        "nodate" => Geom { x: column(2.0), y: MARGIN, w: WIDTH, h: nodate_h },
-        crate::media::LABEL => Geom { x: column(2.0), y: MARGIN + nodate_h + GAP, w: WIDTH, h: PLAYER_H },
-        crate::focus::LABEL => Geom { x: column(0.0), y: MARGIN + tall + GAP, w: 3.0 * WIDTH + 2.0 * GAP, h: FOCUS_H },
-        _ => Geom { x: column(0.0), y: MARGIN, w: WIDTH, h: tall },
+        "upcoming" => Geom { x: column(1.0), y: MARGIN, w: width, h: tall },
+        "nodate" => Geom { x: column(2.0), y: MARGIN, w: width, h: nodate_h },
+        crate::media::LABEL => Geom { x: column(2.0), y: MARGIN + nodate_h + GAP, w: width, h: PLAYER_H },
+        crate::focus::LABEL => Geom { x: column(0.0), y: MARGIN + tall + GAP, w: 3.0 * width + 2.0 * GAP, h: FOCUS_H },
+        // Whatever width is left on the right, down to the strip's bottom.
+        crate::calendar::LABEL => Geom { x: column(3.0), y: MARGIN, w: (area_w - column(3.0) - MARGIN).min(WIDTH), h: tall + GAP + FOCUS_H },
+        _ => Geom { x: column(0.0), y: MARGIN, w: width, h: tall },
     }
 }
 

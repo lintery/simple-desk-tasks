@@ -1,0 +1,11 @@
+[package]
+name = "desk-tasks-signer"
+version = "0.1.0"
+edition = "2021"
+description = "Signs release builds of Simple Desk Tasks for the in-app updater (see tools/release.ps1)."
+publish = false
+
+[dependencies]
+minisign = "0.10"
+
+[workspace]

@@ -19,7 +19,6 @@ use std::{
 };
 use tauri_winrt_notification::Toast;
 
-const DIR: &str = r"D:\backups\simple-desk-tasks";
 const KEEP: usize = 30;
 const PREFIX: &str = "tasks-";
 const MAIN: &str = ".json";
@@ -36,15 +35,24 @@ pub struct Backup {
     tx: mpsc::Sender<Msg>,
 }
 
+/// Where backups go now; `None` while they're turned off in the settings.
+type Target = Box<dyn Fn() -> Option<PathBuf> + Send>;
+
+/// The backup folder from the settings, if backups are on.
+fn configured() -> Option<PathBuf> {
+    let s = crate::settings::get();
+    s.backup_enabled.then(|| PathBuf::from(s.backup_dir))
+}
+
 impl Backup {
     pub fn start() -> Self {
-        Self::start_in(PathBuf::from(DIR), true)
+        Self::start_in(Box::new(configured), true)
     }
 
-    fn start_in(dir: PathBuf, toasts: bool) -> Self {
+    fn start_in(target: Target, toasts: bool) -> Self {
         let (tx, rx) = mpsc::channel::<Msg>();
         thread::spawn(move || {
-            let mut worker = Worker { dir, baseline: None, written: None, failing: false, toasts };
+            let mut worker = Worker { target, dir: None, baseline: None, written: None, failing: false, toasts };
             while let Ok(first) = rx.recv() {
                 // Only the newest state matters; drop ones superseded meanwhile.
                 let mut pending: Option<(String, bool)> = None;
@@ -93,10 +101,12 @@ impl Backup {
 }
 
 struct Worker {
-    dir: PathBuf,
+    target: Target,
+    /// The folder written to last.
+    dir: Option<PathBuf>,
     /// The tasks.json contents this session started from.
     baseline: Option<String>,
-    /// The day this session has already written a snapshot for.
+    /// The day this session has already written a snapshot for (in `dir`).
     written: Option<String>,
     failing: bool,
     toasts: bool,
@@ -104,12 +114,18 @@ struct Worker {
 
 impl Worker {
     fn write(&mut self, json: &str, only_if_absent: bool) {
+        let Some(dir) = (self.target)() else { return };
+        if self.dir.as_ref() != Some(&dir) {
+            // A new folder: whatever is in it wasn't written by this session.
+            self.dir = Some(dir.clone());
+            self.written = None;
+        }
         let now = chrono::Local::now();
         let date = now.format("%Y-%m-%d").to_string();
         let owned = self.written.as_deref() == Some(date.as_str());
         let stamp = now.format("%H%M%S").to_string();
         let session = Session { baseline: self.baseline.as_deref(), owned, stamp: &stamp };
-        match write_snapshot(&self.dir, &date, json, only_if_absent, &session) {
+        match write_snapshot(&dir, &date, json, only_if_absent, &session) {
             Ok(wrote) => {
                 if wrote {
                     self.written = Some(date);
@@ -117,12 +133,12 @@ impl Worker {
                 self.failing = false;
             }
             Err(e) => {
-                eprintln!("backup to {:?} failed: {e}", self.dir);
+                eprintln!("backup to {dir:?} failed: {e}");
                 // Once per failure streak, so a missing drive doesn't toast on every edit.
                 if !self.failing && self.toasts {
                     let _ = Toast::new(APP_ID)
                         .title("Бэкап задач не записался")
-                        .text1(&format!("{}: {e}", self.dir.display()))
+                        .text1(&format!("{}: {e}", dir.display()))
                         .show();
                 }
                 self.failing = true;
@@ -131,11 +147,12 @@ impl Worker {
     }
 }
 
-/// Snapshots on the backup drive, newest first: each day's main copy, then its
-/// `.before` copies newest first. No folder or no such drive means no
-/// snapshots; any other error (drive not ready, access denied) is returned.
+/// Snapshots in the backup folder, newest first: each day's main copy, then its
+/// `.before` copies newest first. Backups off, no folder or no such drive means
+/// no snapshots; any other error (drive not ready, access denied) is returned.
 pub fn snapshots() -> io::Result<Vec<PathBuf>> {
-    match snapshots_in(Path::new(DIR)) {
+    let Some(dir) = configured() else { return Ok(Vec::new()) };
+    match snapshots_in(&dir) {
         Err(e) if e.kind() == io::ErrorKind::NotFound || e.raw_os_error() == Some(ERROR_INVALID_DRIVE) => {
             Ok(Vec::new())
         }
@@ -431,7 +448,8 @@ mod tests {
     #[test]
     fn worker_writes_the_newest_push_and_flushes() {
         let dir = temp_dir("worker");
-        let backup = Backup::start_in(dir.clone(), false);
+        let target = dir.clone();
+        let backup = Backup::start_in(Box::new(move || Some(target.clone())), false);
         backup.push_initial("initial".into());
         backup.push("old".into());
         backup.push("new".into());

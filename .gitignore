@@ -6,3 +6,8 @@
 /design/wallpaper.png
 node_modules/
 *.log
+
+# Release builds (tools/release.ps1)
+/dist/
+
+/tools/signer/target/

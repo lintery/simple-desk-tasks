@@ -38,7 +38,7 @@
 </svg>
 <div class="w fx is-idle" id="w">
   <canvas class="wall"></canvas>
-  <div class="fx-dial">
+  <div class="fx-dial" id="dial">
     <svg class="fx-ring" viewBox="0 0 160 160">
       <circle class="trk" cx="80" cy="80" r="74"/>
       <circle class="tks" cx="80" cy="80" r="65"/>
@@ -53,7 +53,7 @@
     </div>
   </div>
   <div class="fx-main">
-    <div class="fx-hd"><h2>Фокус</h2><span id="today"></span></div>
+    <div class="fx-hd"><h2>Фокус</h2><span class="today" id="today" title="Статистика за неделю"></span></div>
     <div class="fx-modes" id="modes">
       <button class="mode" data-mode="pomodoro"><b>Помодоро</b><span>25 / 5</span></button>
       <button class="mode" data-mode="focus50"><b>Фокус</b><span>50 / 10</span></button>
@@ -81,6 +81,7 @@
       <div class="groups" id="groups"></div>
       <div class="tiles" id="tiles"></div>
     </div>
+    <div class="stats" id="stats"></div>
   </div>
 </div>
 </body>

@@ -35,7 +35,25 @@ export const api = {
   focusAction: (action) => invoke('focus_action', { action }),
   focusMode: (mode) => invoke('focus_mode', { mode }),
   /** Remembers the focus sound (null = silence) and its volume (0..1). */
-  focusPrefs: (sound, volume) => invoke('focus_prefs', { sound, volume }),
+  focusPrefs: (mix, volume) => invoke('focus_prefs', { mix, volume }),
+  settings: () => invoke('get_settings'),
+  /** Saves the whole settings object; resolves to it as stored (values clamped). */
+  setSettings: (settings) => invoke('set_settings', { settings }),
+  /** Opens the settings window, optionally at a section ('calendar', …). */
+  showSettings: (section = null) => invoke('show_settings', { section }),
+  takeSettingsSection: () => invoke('take_settings_section'),
+  /** A folder from the standard Windows dialog, or null. */
+  pickFolder: (start = null) => invoke('pick_folder', { start }),
+  version: () => invoke('app_version'),
+  /** Meetings and sync state of the Mail.ru calendar. */
+  calendar: () => invoke('calendar_state'),
+  /** Checks the account; resolves to the calendars found (saved in the settings). */
+  calendarConnect: (email, password) => invoke('calendar_connect', { email, password }),
+  calendarDisconnect: () => invoke('calendar_disconnect'),
+  calendarRefresh: () => invoke('calendar_refresh'),
+  updateStatus: () => invoke('update_status'),
+  updateCheck: () => invoke('update_check'),
+  updateInstall: () => invoke('update_install'),
   /** What the player widget shows, or null. */
   media: () => invoke('media_state'),
   /** 'toggle' | 'next' | 'prev'; 'seek' to `value` ms; 'volume' to `value` 0..1; 'mute' 1 / 0. */

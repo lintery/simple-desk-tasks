@@ -1041,8 +1041,9 @@ export function buildChime(ctx, dest, kind, when = ctx.currentTime + 0.03) {
 
 export function createAudio() {
   let ctx = null, master = null, vol = DEFAULT_VOLUME;
-  let voice = null, curId = null, timer = 0, idleTimer = 0, lastTick = 0;
-  const voices = new Set(); // current + fading-out voices
+  let timer = 0, idleTimer = 0, lastTick = 0;
+  const live = new Map();   // id -> voice of each sound in the mix (not fading out)
+  const voices = new Set(); // live + fading-out voices
   const chimes = new Set(); // scheduled chimes (+ placeholders while the context resumes)
 
   function ensure() {
@@ -1064,7 +1065,7 @@ export function createAudio() {
     for (const v of voices) {
       // retired voices are freed once their fade is over (audio clock), or after a
       // wall-clock safety margin in case the context never got to run
-      if (v.endAt != null && (now >= v.endAt || wall >= v.endWall)) { v.dispose(); voices.delete(v); }
+      if (v.endAt != null && (now >= v.endAt || wall >= v.endWall)) { v.dispose(); v.level.disconnect(); voices.delete(v); }
       else v.tick(now + ahead, now);
     }
     if (!voices.size) idle();
@@ -1081,26 +1082,46 @@ export function createAudio() {
     v.endAt = ctx.currentTime + FADE + 0.05;
     v.endWall = performance.now() + (FADE + 1) * 1000;
   }
+  // A sound's own level in the mix (0..1, same curve as the master volume).
+  const levelGain = (level) => volumeCurve(clamp(Number(level) || 0, 0, 1));
 
-  return {
-    play(id) {
-      if (!BUILDERS[id]) throw new Error('Unknown sound: ' + id);
-      if (id === curId && voice) return;
-      ensure();
-      if (voice) retire(voice); // crossfade: old fades out while the new one fades in
-      const now = ctx.currentTime, t0 = now + 0.05;
-      voice = buildSound(ctx, id, master.sounds, { t0 });
-      curId = id;
+  // Plays exactly these sounds, each at its own level: new ones fade in, dropped
+  // ones fade out (a crossfade when one replaces another), kept ones glide.
+  function setMix(entries) {
+    const want = new Map();
+    for (const e of entries) {
+      if (!BUILDERS[e.id]) throw new Error('Unknown sound: ' + e.id);
+      want.set(e.id, e.level ?? 1);
+    }
+    if (!ctx && !want.size) return;
+    ensure();
+    const now = ctx.currentTime;
+    for (const [id, v] of live) {
+      if (!want.has(id)) { retire(v); live.delete(id); }
+    }
+    for (const [id, level] of want) {
+      const v = live.get(id);
+      if (v) { v.level.gain.setTargetAtTime(levelGain(level), now, 0.08); continue; }
+      const g = ctx.createGain();
+      g.gain.value = levelGain(level);
+      g.connect(master.sounds);
+      const t0 = now + 0.05, voice = buildSound(ctx, id, g, { t0 });
+      voice.level = g;
+      live.set(id, voice);
       voices.add(voice);
       voice.tick(t0 + LOOKAHEAD, now);
-      if (!timer) timer = setInterval(tick, TICK_MS);
-    },
-    stop() {
-      if (!voice) return;
-      retire(voice);
-      voice = null; curId = null;
-    },
-    current: () => curId,
+    }
+    if (voices.size && !timer) timer = setInterval(tick, TICK_MS);
+  }
+
+  return {
+    setMix,
+    play(id) { setMix([{ id, level: 1 }]); },
+    stop() { setMix([]); },
+    /** The first sound of the mix, or null. */
+    current: () => live.keys().next().value ?? null,
+    /** Ids of the sounds playing now, in the order they were added. */
+    mix: () => [...live.keys()],
     setVolume(v) {
       vol = clamp(Number(v) || 0, 0, 1);
       if (ctx) master.volume.gain.setTargetAtTime(volumeCurve(vol), ctx.currentTime, 0.05);
@@ -1136,12 +1157,12 @@ export function createAudio() {
       oneShots: [...voices].reduce((s, v) => s + v.live.size, 0),
     }),
     dispose() {
-      for (const v of voices) v.dispose();
+      for (const v of voices) { v.dispose(); v.level.disconnect(); }
       voices.clear();
+      live.clear();
       for (const c of [...chimes]) { c.stop(); c.cleanup(); }
       chimes.clear();
       clearInterval(timer); clearTimeout(idleTimer); timer = 0; lastTick = 0;
-      voice = null; curId = null;
       if (ctx) { ctx.close().catch(() => {}); ctx = null; master = null; }
     },
   };

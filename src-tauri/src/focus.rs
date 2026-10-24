@@ -4,12 +4,15 @@
 
 use crate::desktop::APP_ID;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, sync::Mutex, thread, time::Duration};
+use std::{collections::BTreeMap, fs, path::PathBuf, sync::Mutex, thread, time::Duration};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_winrt_notification::Toast;
 
 pub const LABEL: &str = "focus";
 const MIN: i64 = 60_000;
+/// Sounds that can play together.
+const MAX_MIX: usize = 2;
+const HISTORY_DAYS: usize = 120;
 /// A phase that ended longer ago than this (asleep, lid closed) passes quietly.
 const ANNOUNCE_GRACE: i64 = 2 * MIN;
 const MODES: [&str; 3] = ["pomodoro", "focus50", "deep90"];
@@ -25,13 +28,10 @@ pub enum Phase {
 }
 
 /// Focus, break and long-break lengths, and how many focus sessions earn a
-/// long break (0 = never).
+/// long break (0 = never), as set in the settings.
 fn lengths(mode: &str) -> (i64, i64, i64, u32) {
-    match mode {
-        "focus50" => (50 * MIN, 10 * MIN, 10 * MIN, 0),
-        "deep90" => (90 * MIN, 20 * MIN, 20 * MIN, 0),
-        _ => (25 * MIN, 5 * MIN, 15 * MIN, 4),
-    }
+    let m = crate::settings::get().modes.get(mode);
+    (m.focus as i64 * MIN, m.short as i64 * MIN, m.long as i64 * MIN, m.every)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -52,11 +52,25 @@ pub struct Timer {
     pub day: String,
     /// Focus time finished that day, ms.
     pub today: i64,
-    /// Chosen focus sound (`None` = silence) and its volume, 0..1.
-    pub sound: Option<String>,
+    /// Focus sounds playing together (at most `MAX_MIX`), each with its level;
+    /// empty = silence. `volume` (0..1) is over all of them.
+    #[serde(default)]
+    pub mix: Vec<MixItem>,
     pub volume: f64,
+    /// Focus time per local day (`YYYY-MM-DD`), the last `HISTORY_DAYS` days.
+    #[serde(default)]
+    pub history: BTreeMap<String, i64>,
     /// Bumped on every change, so the page can drop a state that arrives late.
     pub rev: u64,
+    /// The single sound of older versions; moved into `mix` on load.
+    #[serde(default, skip_serializing)]
+    sound: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MixItem {
+    pub id: String,
+    pub level: f64,
 }
 
 impl Default for Timer {
@@ -71,9 +85,11 @@ impl Default for Timer {
             round: 0,
             day: String::new(),
             today: 0,
-            sound: Some("rain".into()),
+            mix: vec![MixItem { id: "rain".into(), level: 1.0 }],
             volume: 0.6,
+            history: BTreeMap::new(),
             rev: 0,
+            sound: None,
         };
         t.idle();
         t
@@ -176,6 +192,12 @@ impl Timer {
     /// Counts `spent` and starts the break that follows, from `from`.
     fn finish_focus(&mut self, from: i64, spent: i64, counts: bool) -> Done {
         self.today += spent.max(0);
+        if !self.day.is_empty() {
+            *self.history.entry(self.day.clone()).or_default() += spent.max(0);
+            while self.history.len() > HISTORY_DAYS {
+                self.history.pop_first();
+            }
+        }
         let (_, short, long, every) = lengths(&self.mode);
         if counts {
             self.round += 1;
@@ -223,11 +245,31 @@ impl Timer {
             self.reset();
         }
         self.volume = if self.volume.is_finite() { self.volume.clamp(0.0, 1.0) } else { 0.6 };
+        if let Some(id) = self.sound.take() {
+            if self.mix.is_empty() {
+                self.mix.push(MixItem { id, level: 1.0 });
+            }
+        }
+        self.mix = clean_mix(std::mem::take(&mut self.mix));
         if self.total <= 0 || self.remaining < 0 || self.remaining > self.total {
             self.idle();
         }
         self.fix_clock(crate::store::now_ms());
     }
+}
+
+/// At most `MAX_MIX` distinct, sane entries, levels in 0..1.
+fn clean_mix(mix: Vec<MixItem>) -> Vec<MixItem> {
+    let mut out: Vec<MixItem> = Vec::new();
+    for mut item in mix {
+        if item.id.is_empty() || item.id.len() > 32 || out.iter().any(|o| o.id == item.id) {
+            continue;
+        }
+        item.level = if item.level.is_finite() { item.level.clamp(0.0, 1.0) } else { 1.0 };
+        out.push(item);
+    }
+    out.truncate(MAX_MIX);
+    out
 }
 
 pub struct Focus {
@@ -288,10 +330,35 @@ fn announce(app: &AppHandle, done: &Done) {
     let _ = Toast::new(APP_ID).title(title).text1(&text).show();
 }
 
+/// A focus session is running (an update waits for it to end).
+pub fn busy(app: &AppHandle) -> bool {
+    let t = app.state::<Focus>().timer.lock().unwrap().clone();
+    t.phase == Phase::Focus && t.running
+}
+
+/// Durations changed: a timer waiting to start takes the new focus length now;
+/// a running phase keeps its own, later phases use the new ones.
+pub fn settings_changed(app: &AppHandle) {
+    change(app, |t, _| {
+        if t.phase == Phase::Idle {
+            t.idle();
+        }
+    });
+}
+
 pub fn spawn(app: AppHandle) {
+    let mut shown_tip = String::new();
     thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(250));
         let focus = app.state::<Focus>();
+        let tip = tray_tip(&focus.timer.lock().unwrap(), crate::store::now_ms());
+        if tip != shown_tip {
+            if let Some(tray) = app.tray_by_id("main") {
+                if tray.set_tooltip(Some(&tip)).is_ok() {
+                    shown_tip = tip;
+                }
+            }
+        }
         // A phase ended, or the clock went back past its start (see fix_clock).
         let due = {
             let t = focus.timer.lock().unwrap();
@@ -357,15 +424,28 @@ pub fn focus_mode(app: AppHandle, mode: String) -> Result<Timer, String> {
     if ok { Ok(timer) } else { Err(format!("unknown mode {mode}")) }
 }
 
-/// Remembers the chosen sound (`None` = silence) and volume.
+/// Remembers the sound mix (empty = silence) and the overall volume.
 #[tauri::command]
-pub fn focus_prefs(app: AppHandle, sound: Option<String>, volume: f64) -> Timer {
-    let sound = sound.filter(|s| !s.is_empty() && s.len() <= 32);
+pub fn focus_prefs(app: AppHandle, mix: Vec<MixItem>, volume: f64) -> Timer {
+    let mix = clean_mix(mix);
     change(&app, |t, _| {
-        t.sound = sound;
+        t.mix = mix;
         t.volume = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { t.volume };
     })
     .1
+}
+
+/// Tray tooltip: the time left while a phase runs or is paused.
+fn tray_tip(t: &Timer, now: i64) -> String {
+    // Whole seconds rounded up, like the widget's countdown.
+    let secs = (t.left(now) + 999) / 1000;
+    let mmss = format!("{:02}:{:02}", secs / 60, secs % 60);
+    match (t.phase, t.running) {
+        (Phase::Idle, _) => "Задачи".to_string(),
+        (Phase::Focus, true) => format!("Фокус · {mmss}"),
+        (Phase::Break | Phase::Long, true) => format!("Перерыв · {mmss}"),
+        (_, false) => format!("Пауза · {mmss}"),
+    }
 }
 
 #[cfg(test)]
@@ -481,6 +561,42 @@ mod tests {
         assert_eq!((t.today, t.round), (50 * MIN, 2));
         t.roll_day("2026-10-25");
         assert_eq!((t.today, t.round), (0, 0));
+    }
+
+    #[test]
+    fn old_single_sound_moves_into_the_mix() {
+        let mut t: Timer = serde_json::from_str(r#"{"sound":"fire"}"#).unwrap();
+        t.sanitize();
+        assert_eq!(t.mix, vec![MixItem { id: "fire".into(), level: 1.0 }]);
+        let mut silent: Timer = serde_json::from_str(r#"{"sound":null}"#).unwrap();
+        silent.sanitize();
+        assert!(silent.mix.is_empty(), "chosen silence stays silence");
+        assert!(!serde_json::to_string(&silent).unwrap().contains("\"sound\""));
+    }
+
+    #[test]
+    fn mix_keeps_two_distinct_sounds() {
+        let item = |id: &str, level: f64| MixItem { id: id.into(), level };
+        let mix = clean_mix(vec![item("rain", 2.0), item("rain", 0.5), item("", 1.0), item("fire", f64::NAN), item("waves", 1.0)]);
+        assert_eq!(mix, vec![item("rain", 1.0), item("fire", 1.0)]);
+    }
+
+    #[test]
+    fn focus_time_is_kept_per_day() {
+        let mut t = timer("pomodoro");
+        t.roll_day("2026-10-24");
+        t.start(0);
+        t.tick(t.ends_at);
+        assert_eq!(t.history.get("2026-10-24"), Some(&(25 * MIN)));
+        t.tick(t.ends_at); // the break ends; waiting for the next focus
+        for i in 0..(HISTORY_DAYS + 5) {
+            t.history.insert(format!("2020-{:03}", i), 1);
+        }
+        t.roll_day("2026-10-25");
+        t.start(0);
+        t.skip(MIN);
+        assert_eq!(t.history.len(), HISTORY_DAYS);
+        assert_eq!(t.history.get("2026-10-25"), Some(&MIN));
     }
 
     #[test]

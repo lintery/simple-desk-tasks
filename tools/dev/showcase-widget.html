@@ -5,7 +5,9 @@
 <title>Showcase: widget</title>
 <!-- One widget of tools/dev/showcase.html: the real page from ui/ (index, focus
      or player) on made-up data, with demo-wallpaper.svg behind the glass.
-     ?w=today|upcoming|nodate|focus|player&x=<left>&y=<top>[&type=<text in the add field>][&sound=<focus sound id>] -->
+     ?w=today|upcoming|nodate|focus|player|calendar|settings&x=<left>&y=<top>[&type=<text in the add field>][&nocal=1]
+     [&sound=<focus sound id>][&sound2=<second sound in the mix>][&stats=1] -->
+<script type="importmap">{ "imports": { "../../ui/lib/sounds.js": "./sounds-silent.js" } }</script>
 <script type="module">
 // A fixed moment (Wed 21 Oct 2026, 10:00 local), so the picture comes out the
 // same whenever it's regenerated.
@@ -43,7 +45,9 @@ const MIN = 60_000;
 // Second pomodoro of the day, 11:24 left, rain playing.
 const focus = {
   mode: 'pomodoro', phase: 'focus', running: true, endsAt: now + 11 * MIN + 24_000, remaining: 0,
-  total: 25 * MIN, round: 1, day: day(0), today: 25 * MIN, sound: q.get('sound') || 'rain', volume: 0.6,
+  total: 25 * MIN, round: 1, day: day(0), today: 25 * MIN, volume: 0.6,
+  mix: [q.get('sound') || 'rain', q.get('sound2')].filter(Boolean).map((id, i) => ({ id, level: i ? 0.6 : 1 })),
+  history: Object.fromEntries([95, 40, 0, 120, 75, 150].map((m, i) => [day(i - 6), m * MIN]).concat([[day(0), 25 * MIN]])),
 };
 const cover = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 92"><defs>' +
@@ -54,9 +58,37 @@ const cover = 'data:image/svg+xml,' + encodeURIComponent(
 const media = {
   app: 'Spotify', title: 'Weightless', artist: 'Marconi Union', playing: true,
   position: 192_000, duration: 489_000, updated: now, cover, canPrev: true, canNext: true,
-  canSeek: true, volume: 0.7, muted: false,
+  canSeek: true, volume: 0.7, muted: false, shuffle: true, repeat: 'none',
 };
-const backdrop = { monW: 1200, monH: 900, winX: +q.get('x') || 0, winY: +q.get('y') || 0, scale: 1, style: 'fill', ver: 1 };
+// Meetings around the frozen moment: one over, one under way, one soon with a call link.
+const at = (d, h, m = 0) => new Date(2026, 9, 21 + d, h, m).getTime();
+const WORK = '#8e9fff', HOME = '#7fd0bd', BDAY = '#e6b873';
+const M = (title, start, end, color = WORK, extra = {}) =>
+  ({ id: `${title}@${start}`, title, start, end, allDay: false, location: '', link: null, calendar: 'Рабочий', color, ...extra });
+const meetings = [
+  M('Дейли команды', at(-2, 10), at(-2, 10, 15), WORK, { link: 'https://telemost.yandex.ru/j/1' }),
+  M('Ретро', at(-1, 16), at(-1, 17)),
+  M('Дейли команды', at(0, 9), at(0, 9, 15), WORK, { link: 'https://telemost.yandex.ru/j/1' }),
+  M('Планирование спринта', at(0, 9, 30), at(0, 10, 45), WORK, { location: 'Переговорная «Байкал», 7 этаж' }),
+  M('Созвон с дизайнером', at(0, 11, 30), at(0, 12), WORK, { link: 'https://us02web.zoom.us/j/2' }),
+  M('Ревью макетов', at(0, 15), at(0, 16), WORK, { link: 'https://calls.vk.com/call/3' }),
+  M('Йога', at(0, 19, 30), at(0, 20, 45), HOME, { location: 'Студия на Тверской, 12', calendar: 'Личный' }),
+  M('День рождения Димы', at(1, 0), at(2, 0), BDAY, { allDay: true, calendar: 'Дни рождения' }),
+  M('Дейли команды', at(1, 10), at(1, 10, 15), WORK, { link: 'https://telemost.yandex.ru/j/1' }),
+  M('Демо для клиента', at(2, 12), at(2, 13, 30), WORK, { location: 'Ленинградский пр., 39' }),
+  M('Бассейн', at(3, 11), at(3, 12), HOME, { calendar: 'Личный' }),
+  M('Дейли команды', at(5, 10), at(5, 10, 15), WORK, { link: 'https://telemost.yandex.ru/j/1' }),
+  M('Ретро', at(6, 16), at(6, 17)),
+];
+const settings = {
+  modes: { pomodoro: { focus: 25, short: 5, long: 15, every: 4 }, focus50: { focus: 50, short: 10, long: 10, every: 0 },
+    deep90: { focus: 90, short: 20, long: 20, every: 0 } },
+  backupEnabled: true, backupDir: 'D:\\OneDrive\\Задачи', autostart: true, autoUpdate: true,
+  calendarEmail: 'name@mail.ru',
+  calendars: [{ url: 'a', name: 'Рабочий', color: WORK, enabled: true }, { url: 'b', name: 'Личный', color: HOME, enabled: true },
+    { url: 'c', name: 'Дни рождения', color: BDAY, enabled: true }, { url: 'd', name: 'Праздники', color: '#d797c9', enabled: false }],
+};
+const backdrop = { monW: 1560, monH: 900, winX: +q.get('x') || 0, winY: +q.get('y') || 0, scale: 1, style: 'fill', ver: 1 };
 const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
 Object.defineProperty(HTMLImageElement.prototype, 'src', {
   ...src,
@@ -75,6 +107,10 @@ window.__TAURI__ = {
       focus_mode: structuredClone(focus),
       focus_prefs: structuredClone(focus),
       media_state: structuredClone(media),
+      get_settings: structuredClone(settings),
+      calendar_state: { configured: !q.get('nocal'), meetings: q.get('nocal') ? [] : structuredClone(meetings), updated: now - 2 * MIN, error: null, syncing: false },
+      update_status: { current: '1.1.0', latest: '1.1.0', state: 'uptodate', message: null, checkedAt: now - 25 * 60_000 },
+      app_version: '1.1.0',
     })[cmd] ?? null),
   },
   event: { listen: async () => () => {} },
@@ -83,8 +119,12 @@ window.__TAURI__ = {
   },
 };
 
+// A still picture: no periodic ticks (they'd run headless Edge's virtual
+// clock out before the other frames finish loading).
+window.setInterval = () => 0;
+
 // Load the real page: its stylesheets and markup, then its script.
-const page = { focus: 'focus.html', player: 'player.html' }[label] ?? 'index.html';
+const page = { focus: 'focus.html', player: 'player.html', calendar: 'calendar.html', settings: 'settings.html' }[label] ?? 'index.html';
 const doc = new DOMParser().parseFromString(await (await fetch(`../../ui/${page}`)).text(), 'text/html');
 for (const link of doc.querySelectorAll('link[rel=stylesheet]')) {
   const css = document.createElement('link');
@@ -95,6 +135,7 @@ for (const link of doc.querySelectorAll('link[rel=stylesheet]')) {
 document.body.innerHTML = doc.body.innerHTML;
 await import(`../../ui/${doc.querySelector('script[type=module]').getAttribute('src')}`);
 
+if (q.get('stats')) setTimeout(() => document.getElementById('today')?.click(), 300);
 const typed = q.get('type');
 if (typed) {
   setTimeout(() => {

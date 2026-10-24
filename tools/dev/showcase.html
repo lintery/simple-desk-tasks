@@ -4,23 +4,31 @@
 <meta charset="utf-8">
 <title>Showcase</title>
 <!-- README screenshot: all widgets in their default places on a neutral
-     wallpaper with made-up data. Serve the project root over http
-     (python -m http.server 8765), then from the project root:
-     msedge --headless=new --hide-scrollbars --window-size=1200,900
-       --force-device-scale-factor=2 --virtual-time-budget=8000
-       --screenshot=docs/screenshot.png http://127.0.0.1:8765/tools/dev/showcase.html
-     The virtual time budget lets the typed draft and the glass fade-in finish first. -->
+     wallpaper with made-up data. Rendered into docs/screenshot.png by
+     tools/dev/screenshot.ps1. ?only=<name> / ?skip=<name,…> keep or drop
+     widgets (headless Edge leaves the sixth frame unpainted, so the script
+     shoots the calendar on its own and puts it in). -->
 <style>
-  html, body { margin: 0; width: 1200px; height: 900px; overflow: hidden;
+  html, body { margin: 0; width: 1560px; height: 900px; overflow: hidden;
     background: #2c2e34 url(demo-wallpaper.svg) center / cover no-repeat; }
   iframe { position: absolute; border: 0; background: transparent; }
 </style>
 </head>
 <body>
-<iframe style="left:70px;top:60px;width:340px;height:560px" src="showcase-widget.html?w=today&x=70&y=60&type=%D1%81%D0%BE%D0%B7%D0%B2%D0%BE%D0%BD%20%D0%B7%D0%B0%D0%B2%D1%82%D1%80%D0%B0%20%D0%B2%2015%3A30"></iframe>
-<iframe style="left:430px;top:60px;width:340px;height:560px" src="showcase-widget.html?w=upcoming&x=430&y=60"></iframe>
-<iframe style="left:790px;top:60px;width:340px;height:420px" src="showcase-widget.html?w=nodate&x=790&y=60"></iframe>
-<iframe style="left:790px;top:500px;width:340px;height:120px" src="showcase-widget.html?w=player&x=790&y=500"></iframe>
-<iframe style="left:70px;top:640px;width:1060px;height:200px" src="showcase-widget.html?w=focus&x=70&y=640"></iframe>
+<iframe data-name="today" style="left:70px;top:60px;width:340px;height:560px" data-src="showcase-widget.html?w=today&x=70&y=60&type=%D1%81%D0%BE%D0%B7%D0%B2%D0%BE%D0%BD%20%D0%B7%D0%B0%D0%B2%D1%82%D1%80%D0%B0%20%D0%B2%2015%3A30"></iframe>
+<iframe data-name="upcoming" style="left:430px;top:60px;width:340px;height:560px" data-src="showcase-widget.html?w=upcoming&x=430&y=60"></iframe>
+<iframe data-name="nodate" style="left:790px;top:60px;width:340px;height:420px" data-src="showcase-widget.html?w=nodate&x=790&y=60"></iframe>
+<iframe data-name="player" style="left:790px;top:500px;width:340px;height:120px" data-src="showcase-widget.html?w=player&x=790&y=500"></iframe>
+<iframe data-name="focus" style="left:70px;top:640px;width:1060px;height:200px" data-src="showcase-widget.html?w=focus&x=70&y=640"></iframe>
+<iframe data-name="calendar" style="left:1150px;top:60px;width:340px;height:780px" data-src="showcase-widget.html?w=calendar&x=1150&y=60"></iframe>
+<script>
+  const q = new URLSearchParams(location.search);
+  const only = q.get('only'), skip = (q.get('skip') || '').split(',');
+  for (const f of document.querySelectorAll('iframe')) {
+    const name = f.dataset.name;
+    if ((only && name !== only) || skip.includes(name)) f.remove();
+    else f.src = f.dataset.src;
+  }
+</script>
 </body>
 </html>

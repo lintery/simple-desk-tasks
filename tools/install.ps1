@@ -14,6 +14,9 @@ New-Item -ItemType Directory -Force $dest | Out-Null
 Get-Process desk-tasks, DeskTasks -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 Copy-Item (Join-Path $env:CARGO_TARGET_DIR 'release\desk-tasks.exe') (Join-Path $dest 'DeskTasks.exe') -Force
+# A hand install ends any update on trial (it would otherwise roll this build back).
+'DeskTasks.trial', 'DeskTasks.old.exe', 'DeskTasks.bad.exe', 'DeskTasks.new.exe' |
+    ForEach-Object { Remove-Item (Join-Path $dest $_) -Force -ErrorAction SilentlyContinue }
 
 # WScript.Shell can't save to a non-ASCII path, so save under an ASCII name and rename.
 $programs = [Environment]::GetFolderPath('Programs')

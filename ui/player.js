@@ -20,6 +20,13 @@ let shownCover = null;
 let dragging = null;
 /** Volume set here, shown until the mixer reports it back. */
 const local = { value: null, muted: false, until: 0 };
+/** Shuffle / repeat just clicked, shown until the player reports it (or 2.5 s). */
+const pending = { shuffle: null, repeat: null };
+const REPEAT_NEXT = { none: 'list', list: 'track', track: 'none' };
+const REPEAT_CODE = { none: 0, list: 1, track: 2 };
+const REPEAT_TITLE = { none: 'Повтор: выключен', list: 'Повтор: плейлист', track: 'Повтор: трек' };
+const shuffleOn = () => pending.shuffle ?? media?.shuffle;
+const repeatMode = () => pending.repeat ?? media?.repeat;
 
 /** Swaps a button's sprite icon only when it changes (see focus.js). */
 function setIcon(button, name) {
@@ -90,6 +97,15 @@ function render() {
   $('prev').disabled = !media.canPrev;
   $('next').disabled = !media.canNext;
   bar.classList.toggle('seekable', !!media.canSeek);
+  const shuffle = shuffleOn();
+  $('shuffle').style.display = media.shuffle == null ? 'none' : '';
+  $('shuffle').classList.toggle('on', !!shuffle);
+  $('shuffle').title = shuffle ? 'Перемешивание: включено' : 'Перемешивание: выключено';
+  const repeat = repeatMode();
+  $('repeat').style.display = media.repeat == null ? 'none' : '';
+  $('repeat').classList.toggle('on', !!repeat && repeat !== 'none');
+  setIcon($('repeat'), repeat === 'track' ? 'repeat-one' : 'repeat');
+  $('repeat').title = REPEAT_TITLE[repeat] ?? REPEAT_TITLE.none;
   $('dur').textContent = media.duration ? mmss(media.duration) : '';
   renderTime();
   renderVolume();
@@ -97,6 +113,9 @@ function render() {
 
 function show(next) {
   if (next && media && next.playing !== media.playing) optimistic = null;
+  // The player confirmed a shuffle / repeat change.
+  if (next && next.shuffle === pending.shuffle) pending.shuffle = null;
+  if (next && next.repeat === pending.repeat) pending.repeat = null;
   media = next;
   render();
 }
@@ -121,6 +140,30 @@ async function control(action) {
   }, 2500);
 }
 
+/** Shows a shuffle / repeat change at once, then asks the player for it. */
+const pendingTimer = { shuffle: 0, repeat: 0 };
+function toggle(kind, value, code) {
+  pending[kind] = value;
+  render();
+  api.mediaControl(kind, code).catch(() => {
+    if (pending[kind] === value) pending[kind] = null;
+    resync();
+  });
+  // Only the latest click's wait counts: an earlier one would end it early.
+  clearTimeout(pendingTimer[kind]);
+  pendingTimer[kind] = setTimeout(() => {
+    pending[kind] = null;
+    render();
+  }, 2500);
+}
+$('shuffle').addEventListener('click', () => {
+  const on = !shuffleOn();
+  toggle('shuffle', on, on ? 1 : 0);
+});
+$('repeat').addEventListener('click', () => {
+  const next = REPEAT_NEXT[repeatMode()] ?? 'list';
+  toggle('repeat', next, REPEAT_CODE[next]);
+});
 $('pp').addEventListener('click', () => control('toggle'));
 $('prev').addEventListener('click', () => control('prev'));
 $('next').addEventListener('click', () => control('next'));

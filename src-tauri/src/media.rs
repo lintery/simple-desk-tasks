@@ -8,10 +8,13 @@ use std::{path::Path, sync::Mutex, thread, time::Duration};
 use tauri::{AppHandle, Emitter, Manager};
 use windows::{
     core::{Interface, Result as WinResult, PWSTR},
-    Media::Control::{
-        GlobalSystemMediaTransportControlsSession as Session,
-        GlobalSystemMediaTransportControlsSessionManager as SessionManager,
-        GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status,
+    Media::{
+        Control::{
+            GlobalSystemMediaTransportControlsSession as Session,
+            GlobalSystemMediaTransportControlsSessionManager as SessionManager,
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status,
+        },
+        MediaPlaybackAutoRepeatMode as Repeat,
     },
     Storage::Streams::{DataReader, IRandomAccessStreamReference},
     Win32::{
@@ -58,6 +61,10 @@ pub struct Media {
     /// The app's mixer volume, 0..1; `None` when its audio can't be found.
     pub volume: Option<f32>,
     pub muted: bool,
+    /// `None` when the player doesn't offer it.
+    pub shuffle: Option<bool>,
+    /// "none" | "list" | "track"; `None` when the player doesn't offer it.
+    pub repeat: Option<String>,
 }
 
 /// What the widget shows, and which player it belongs to.
@@ -214,7 +221,7 @@ fn unix_ms(file_time: i64) -> i64 {
     (file_time - 116_444_736_000_000_000) / 10_000
 }
 
-fn base64(bytes: &[u8]) -> String {
+pub fn base64(bytes: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -269,6 +276,18 @@ fn read(session: &Session, id: &str, cover: &mut Cover) -> WinResult<Option<Medi
         }
     }
     let (volume, muted) = read_volume(id);
+    let shuffle = controls
+        .IsShuffleEnabled()
+        .unwrap_or(false)
+        .then(|| info.IsShuffleActive().and_then(|r| r.Value()).unwrap_or(false));
+    let repeat = controls.IsRepeatEnabled().unwrap_or(false).then(|| {
+        match info.AutoRepeatMode().and_then(|r| r.Value()) {
+            Ok(Repeat::List) => "list",
+            Ok(Repeat::Track) => "track",
+            _ => "none",
+        }
+        .to_string()
+    });
     Ok(Some(Media {
         app: app_name(id),
         title,
@@ -283,6 +302,8 @@ fn read(session: &Session, id: &str, cover: &mut Cover) -> WinResult<Option<Medi
         can_seek: controls.IsPlaybackPositionEnabled().unwrap_or(false) && end > start,
         volume,
         muted,
+        shuffle,
+        repeat,
     }))
 }
 
@@ -348,7 +369,7 @@ pub fn media_state() -> Option<Media> {
 
 /// For the player the widget shows: `toggle`, `next`, `prev`; `seek` to
 /// `value` ms; `volume` to `value` (0..1, also unmutes); `mute` on (`value` 1)
-/// or off (0).
+/// or off (0); `shuffle` on (1) / off (0); `repeat` none (0) / list (1) / track (2).
 #[tauri::command]
 pub async fn media_control(action: String, value: Option<f64>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -363,6 +384,12 @@ pub async fn media_control(action: String, value: Option<f64>) -> Result<(), Str
             "toggle" => session.TryTogglePlayPauseAsync(),
             "next" => session.TrySkipNextAsync(),
             "prev" => session.TrySkipPreviousAsync(),
+            "shuffle" => session.TryChangeShuffleActiveAsync(value.ok_or("no value")? > 0.5),
+            "repeat" => session.TryChangeAutoRepeatModeAsync(match value.ok_or("no value")? as i32 {
+                1 => Repeat::List,
+                2 => Repeat::Track,
+                _ => Repeat::None,
+            }),
             "seek" => {
                 let ms = value.ok_or("no position")?.max(0.0) as i64;
                 let start = session.GetTimelineProperties().and_then(|t| t.StartTime()).map_err(|e| e.to_string())?;
