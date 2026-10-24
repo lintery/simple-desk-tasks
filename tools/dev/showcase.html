@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Showcase</title>
+<!-- README screenshot: the three widgets on a neutral wallpaper with made-up
+     tasks. Serve the project root over http (python -m http.server 8765), then
+     from the project root:
+     msedge --headless=new --hide-scrollbars --window-size=1200,680
+       --force-device-scale-factor=2 --virtual-time-budget=8000
+       --screenshot=docs/screenshot.png http://127.0.0.1:8765/tools/dev/showcase.html
+     The virtual time budget lets the typed draft and the glass fade-in finish first. -->
+<style>
+  html, body { margin: 0; width: 1200px; height: 680px; overflow: hidden;
+    background: #0c1220 url(demo-wallpaper.svg) center / cover no-repeat; }
+  iframe { position: absolute; top: 60px; width: 340px; height: 560px; border: 0; background: transparent; }
+</style>
+</head>
+<body>
+<iframe style="left:70px" src="showcase-widget.html?w=today&x=70&y=60&type=%D1%81%D0%BE%D0%B7%D0%B2%D0%BE%D0%BD%20%D0%B7%D0%B0%D0%B2%D1%82%D1%80%D0%B0%20%D0%B2%2015%3A30"></iframe>
+<iframe style="left:430px" src="showcase-widget.html?w=upcoming&x=430&y=60"></iframe>
+<iframe style="left:790px" src="showcase-widget.html?w=nodate&x=790&y=60"></iframe>
+</body>
+</html>

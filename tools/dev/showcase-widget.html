@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Showcase: widget</title>
+<!-- One widget of tools/dev/showcase.html: the real UI on made-up tasks, with
+     demo-wallpaper.svg as the wallpaper behind the glass.
+     ?w=today|upcoming|nodate&x=<left>&y=<top>[&type=<text in the add field>] -->
+<link rel="stylesheet" href="../../ui/style.css">
+<script>
+(() => {
+  // A fixed moment (Wed 21 Oct 2026, 10:00 local), so the picture comes out the
+  // same whenever it's regenerated.
+  const now = new Date(2026, 9, 21, 10, 0).getTime();
+  const RealDate = Date;
+  window.Date = class extends RealDate {
+    constructor(...args) { if (args.length) super(...args); else super(now); }
+    static now() { return now; }
+  };
+  const q = new URLSearchParams(location.search);
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv'); };
+  let seq = 0;
+  const T = (title, due = null, time = null, repeat = null, extra = {}) =>
+    ({ id: `d${++seq}`, title, due, time, repeat, done: false, doneAt: null, created: now - seq * 6e5, ...extra });
+  const tasks = [
+    T('Созвон с командой', day(0), '11:00'),
+    T('Отправить отчёт за неделю', day(0)),
+    T('Позвонить в автосервис', day(0), '14:00'),
+    T('Купить продукты на неделю', day(0)),
+    T('Прогулка', day(0), '19:00', { kind: 'daily' }),
+    T('Ответить на письма', day(0), null, null, { done: true, doneAt: now - 36e5 }),
+    T('Оплатить интернет', day(-1)),
+    T('Забрать посылку', day(1), '12:00'),
+    T('Записаться к стоматологу', day(1)),
+    T('Подготовить презентацию', day(2)),
+    // ISO weekday numbers, as the store keeps them: 1 = Monday (26 Oct).
+    T('Планёрка', day(5), '10:00', { kind: 'weekly', days: [1] }),
+    T('Продлить подписку', day(6)),
+    T('Посмотреть доклад https://example.com/talks/design-systems'),
+    T('Разобрать фотографии'),
+    T('Починить велосипед'),
+    T('Купить настольную лампу'),
+  ];
+  const backdrop = { monW: 1200, monH: 680, winX: +q.get('x') || 0, winY: +q.get('y') || 0, scale: 1, style: 'fill', ver: 1 };
+  const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+  Object.defineProperty(HTMLImageElement.prototype, 'src', {
+    ...src,
+    set(v) { src.set.call(this, String(v).startsWith('http://wall.localhost/') ? 'demo-wallpaper.svg' : v); },
+  });
+  const later = (fn) => new Promise((ok) => setTimeout(() => ok(fn()), 0));
+  window.__TAURI__ = {
+    core: {
+      invoke: (cmd) => later(() => ({
+        get_tasks: structuredClone(tasks),
+        get_backdrop: backdrop,
+        hotkey_label: 'Alt+N',
+        widgets_movable: false,
+      })[cmd] ?? null),
+    },
+    event: { listen: async () => () => {} },
+    webviewWindow: {
+      getCurrentWebviewWindow: () => ({ label: q.get('w') || 'today', listen: async () => () => {}, setFocus: async () => {} }),
+    },
+  };
+  const typed = q.get('type');
+  if (typed) {
+    addEventListener('load', () => setTimeout(() => {
+      const input = document.getElementById('add-input');
+      input.focus();
+      input.value = typed;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }, 300));
+  }
+})();
+</script>
+<script type="module" src="../../ui/app.js"></script>
+</head>
+<body>
+<div class="w">
+  <canvas class="wall"></canvas>
+  <header class="hd" id="hd">
+    <div class="ttl"><h2 id="title"></h2><span id="sub"></span></div>
+    <div class="cnt" id="cnt"></div>
+    <div class="prog" id="prog" hidden><i></i></div>
+  </header>
+  <div class="list" id="list"></div>
+  <div class="snk" id="snk" hidden></div>
+  <label class="add" id="add">
+    <span class="plus"></span>
+    <input id="add-input" autocomplete="off" spellcheck="false">
+    <kbd id="add-kbd">N</kbd>
+    <div class="parsed" id="parsed"></div>
+  </label>
+</div>
+</body>
+</html>

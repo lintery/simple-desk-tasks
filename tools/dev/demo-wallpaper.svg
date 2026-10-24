@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680">
+  <!-- Neutral stand-in wallpaper for README screenshots (tools/dev/showcase.html). -->
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4b4e56"/>
+      <stop offset="1" stop-color="#2c2e34"/>
+    </linearGradient>
+    <radialGradient id="light" cx=".3" cy=".1" r=".9">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".10"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="680" fill="url(#base)"/>
+  <rect width="1200" height="680" fill="url(#light)"/>
+</svg>
