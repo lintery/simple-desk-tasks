@@ -16,7 +16,7 @@ const MONTHS_GEN = ['января', 'февраля', 'марта', 'апрел�
 const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const WD_FULL = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-const SERVICES = [['zoom', 'Zoom'], ['telemost', 'Телемост'], ['meet.google', 'Google Meet'], ['teams', 'Microsoft Teams'],
+const SERVICES = [['ktalk', 'Толк'], ['zoom', 'Zoom'], ['telemost', 'Телемост'], ['meet.google', 'Google Meet'], ['teams', 'Microsoft Teams'],
   ['vk.com', 'VK Звонки'], ['jazz', 'SaluteJazz']];
 
 let state = { configured: false, meetings: [], updated: 0, error: null, syncing: false };

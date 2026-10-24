@@ -307,6 +307,7 @@ fn discover(email: &str, password: &str) -> Result<Vec<CalendarRef>, String> {
             enabled: true,
         });
     }
+    out.retain(|c| !settings::hidden_calendar(&c.name));
     if out.is_empty() {
         return Err("в аккаунте нет календарей со встречами".into());
     }

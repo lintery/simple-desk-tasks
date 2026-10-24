@@ -12,6 +12,15 @@ use std::{
 use tauri::{AppHandle, Emitter};
 
 pub const DEFAULT_BACKUP_DIR: &str = r"D:\backups\simple-desk-tasks";
+/// Calendars of the account that aren't meetings and are left out: Mail.ru's
+/// holidays and «what happened on this day» feed.
+const HIDDEN_CALENDARS: [&str; 1] = ["события в этот день"];
+
+/// One of HIDDEN_CALENDARS, whatever the case and spacing of its name.
+pub fn hidden_calendar(name: &str) -> bool {
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    HIDDEN_CALENDARS.contains(&name.as_str())
+}
 
 /// One focus mode, in minutes; `every` focus sessions earn a long break (0 = never).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -108,6 +117,7 @@ impl Settings {
         for m in [&mut self.modes.pomodoro, &mut self.modes.focus50, &mut self.modes.deep90] {
             m.sanitize();
         }
+        self.calendars.retain(|c| !hidden_calendar(&c.name));
         self.backup_dir = self.backup_dir.trim().to_string();
         if self.backup_dir.is_empty() {
             self.backup_dir = DEFAULT_BACKUP_DIR.to_string();
@@ -272,6 +282,14 @@ mod tests {
         // After a disconnect the page's account doesn't come back.
         let gone = merge(&Settings::default(), current);
         assert!(gone.calendar_email.is_empty() && gone.calendars.is_empty());
+    }
+
+    #[test]
+    fn holiday_feed_is_left_out() {
+        let cal = |name: &str| CalendarRef { url: name.into(), name: name.into(), enabled: true, ..Default::default() };
+        let mut s = Settings { calendars: vec![cal("Основной"), cal("События в этот день"), cal("СОБЫТИЯ в\u{a0}этот  день")], ..Default::default() };
+        s.sanitize();
+        assert_eq!(s.calendars, vec![cal("Основной")]);
     }
 
     #[test]

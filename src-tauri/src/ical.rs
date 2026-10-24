@@ -7,17 +7,21 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// Hosts whose links are calls one joins.
-const CALL_HOSTS: [&str; 9] = [
-    "zoom.us",
-    "telemost.yandex",
-    "meet.google.com",
-    "teams.microsoft.com",
-    "teams.live.com",
-    "calls.vk.com",
-    "vk.com/call",
-    "salutejazz.ru",
-    "jazz.sber.ru",
+/// Sites whose links are calls one joins: the host (or a subdomain of it,
+/// like a company's team.ktalk.ru or us02web.zoom.us) and a path prefix.
+const CALL_HOSTS: [(&str, &str); 12] = [
+    ("ktalk.ru", ""), // Контур.Толк
+    ("zoom.us", ""),
+    ("telemost.yandex.ru", ""),
+    ("telemost.yandex.com", ""),
+    ("telemost.360.yandex.ru", ""),
+    ("meet.google.com", ""),
+    ("teams.microsoft.com", ""),
+    ("teams.live.com", ""),
+    ("calls.vk.com", ""),
+    ("vk.com", "/call"),
+    ("salutejazz.ru", ""),
+    ("jazz.sber.ru", ""),
 ];
 /// A runaway rule stops here.
 const MAX_STEPS: usize = 5000;
@@ -34,7 +38,8 @@ pub struct Event {
     pub end: i64,
     pub all_day: bool,
     pub location: String,
-    /// A video-call link from URL, LOCATION or DESCRIPTION.
+    /// A video-call link: from URL, CONFERENCE or a video field, LOCATION,
+    /// DESCRIPTION, or else any property.
     pub link: Option<String>,
 }
 
@@ -256,13 +261,23 @@ fn parse_duration(v: &str) -> Option<Duration> {
     Some(Duration::seconds(if neg { -total } else { total }))
 }
 
+/// The link goes to a call site (by its host, not just any mention of it).
+fn is_call(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")) else { return false };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, path) = rest.split_at(end);
+    let host = authority.rsplit('@').next().unwrap_or("").split(':').next().unwrap_or("").to_ascii_lowercase();
+    CALL_HOSTS.iter().any(|(h, prefix)| {
+        let on_host = host == *h || host.strip_suffix(h).is_some_and(|sub| sub.ends_with('.'));
+        on_host && path.starts_with(prefix)
+    })
+}
+
 /// The first call link in the text.
 fn call_link(text: &str) -> Option<String> {
     text.split(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'' | '(' | ')' | ','))
-        .map(|w| w.trim_end_matches(['.', ';']))
-        .filter(|w| w.starts_with("https://") || w.starts_with("http://"))
-        .find(|w| CALL_HOSTS.iter().any(|h| w.contains(h)))
-        .map(str::to_string)
+        .map(|w| w.trim_end_matches(['.', ';']).replace("&amp;", "&"))
+        .find(|w| is_call(w))
 }
 
 #[derive(Debug, Default)]
@@ -655,7 +670,18 @@ pub fn parse(text: &str, from: i64, to: i64) -> Vec<Event> {
         };
         let text = |name: &str| get(name).map(|p| unescape(&p.value)).unwrap_or_default();
         let (location, description) = (text("LOCATION"), text("DESCRIPTION"));
-        let link = get("URL").and_then(|p| call_link(&p.value)).or_else(|| call_link(&location)).or_else(|| call_link(&description));
+        // The meeting's own link fields first: URL, CONFERENCE and the video
+        // fields calendars add as X- properties (they beat a link merely
+        // mentioned in the description); then LOCATION, DESCRIPTION, and any
+        // other property (an HTML description too: call_link undoes &amp;).
+        let video_field = |p: &&Prop| p.name.starts_with("X-") && ["CONF", "VIDEO", "MEET", "CALL"].iter().any(|k| p.name.contains(k));
+        let link = ["URL", "CONFERENCE"]
+            .iter()
+            .find_map(|name| get(name).and_then(|p| call_link(&p.value)))
+            .or_else(|| ps.iter().filter(video_field).find_map(|p| call_link(&unescape(&p.value))))
+            .or_else(|| call_link(&location))
+            .or_else(|| call_link(&description))
+            .or_else(|| ps.iter().find_map(|p| call_link(&unescape(&p.value))));
         let (mut exdates, mut exdays) = (Vec::new(), Vec::new());
         for p in ps.iter().filter(|p| p.name == "EXDATE") {
             for v in p.value.split(',') {
@@ -766,6 +792,39 @@ mod tests {
         assert_eq!(ev[0].title, "Долгое название");
         assert_eq!(ev[0].end - ev[0].start, 90 * 60_000);
         assert_eq!(ev[0].link.as_deref(), Some("https://us02web.zoom.us/j/999?pwd=x"));
+    }
+
+    #[test]
+    fn ktalk_links_wherever_they_are() {
+        let text = cal(
+            "BEGIN:VEVENT\r\nUID:k1\r\nSUMMARY:Дейли\r\nDTSTART:20261026T073000Z\r\nX-MAILRU-CONFERENCE:https://ktstech.ktalk.ru/w7ek90r2wsbc\r\nEND:VEVENT\r\n\
+             BEGIN:VEVENT\r\nUID:k2\r\nSUMMARY:1to1\r\nDTSTART:20261026T133000Z\r\nDESCRIPTION:https://ktstech.ktalk.ru/ba8n84sf6sxj\r\nEND:VEVENT\r\n",
+        );
+        let links: Vec<Option<String>> = parse(&text, ALL.0, ALL.1).into_iter().map(|e| e.link).collect();
+        assert_eq!(
+            links,
+            vec![Some("https://ktstech.ktalk.ru/w7ek90r2wsbc".into()), Some("https://ktstech.ktalk.ru/ba8n84sf6sxj".into())]
+        );
+    }
+
+    #[test]
+    fn call_links_by_host() {
+        assert!(is_call("https://ktstech.ktalk.ru/w7ek90r2wsbc"));
+        assert!(is_call("https://us02web.zoom.us/j/1"));
+        assert!(is_call("https://vk.com/call/join/x"));
+        assert!(!is_call("https://vk.com/feed"));
+        assert!(!is_call("https://notktalk.ru/x"));
+        assert!(!is_call("https://ktalk.ru.example.com/x"));
+        assert!(!is_call("https://www.google.com/url?q=https://team.ktalk.ru/x"));
+        // A video field beats a link only mentioned in the description; one
+        // found only in the HTML description comes out without &amp;.
+        let text = cal(
+            "BEGIN:VEVENT\r\nUID:v\r\nSUMMARY:x\r\nDTSTART:20261026T073000Z\r\nDESCRIPTION:старая https://zoom.us/j/old\r\n\
+             X-ALT-DESC;FMTTYPE=text/html:<a href=\"https://zoom.us/j/1?a=1&amp;b=2\">\r\nX-VIDEO-LINK:https://team.ktalk.ru/new\r\nEND:VEVENT\r\n\
+             BEGIN:VEVENT\r\nUID:h\r\nSUMMARY:x\r\nDTSTART:20261026T083000Z\r\nX-ALT-DESC;FMTTYPE=text/html:<a href=\"https://zoom.us/j/1?a=1&amp;b=2\">\r\nEND:VEVENT\r\n",
+        );
+        let links: Vec<Option<String>> = parse(&text, ALL.0, ALL.1).into_iter().map(|e| e.link).collect();
+        assert_eq!(links, vec![Some("https://team.ktalk.ru/new".into()), Some("https://zoom.us/j/1?a=1&b=2".into())]);
     }
 
     #[test]
