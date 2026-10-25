@@ -7,15 +7,16 @@
 //! - if it can't be saved (busy, too big, too slow to render), nothing is
 //!   copied at all and the popup opens empty;
 //! - if the copy doesn't arrive in time (nothing selected, or a slow app such
-//!   as remote desktop), the saved clipboard stays pending for 1.5 s and is
-//!   put back if that app's copy lands late;
+//!   as remote desktop), the popup opens without it; the saved clipboard stays
+//!   pending for 1.5 s and is put back if that app's copy lands late (whose
+//!   text then goes to the open popup);
 //! - while such a copy is pending, the hotkey doesn't copy again, so there is
 //!   never more than one copy in flight.
 
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc, Arc, Mutex, OnceLock,
     },
     thread,
     time::{Duration, Instant},
@@ -73,8 +74,10 @@ const MODIFIERS: [(VIRTUAL_KEY, bool); 8] = [
 ];
 /// Unassigned virtual key used as a mask (see send_copy).
 const MASK_KEY: VIRTUAL_KEY = VIRTUAL_KEY(0xE8);
-/// How long the copy we sent is waited for before the popup opens without it.
-const COPY_WAIT: Duration = Duration::from_millis(250);
+/// How long the copy we sent is waited for before the popup opens without it
+/// (most apps answer well within this; a slower one's copy still fills the
+/// popup when it lands, see late_restore).
+const COPY_WAIT: Duration = Duration::from_millis(100);
 /// How long the popup waits to read the copied text (the clipboard restore
 /// itself goes on longer, in the background).
 const READ_WAIT: Duration = Duration::from_millis(600);
@@ -135,11 +138,24 @@ impl Check {
     }
 }
 
-/// Selected text of the foreground app, if any, or why there's none (for the
-/// hotkey log). Blocks for up to ~1.3 s (usually a few hundred ms), so call it
-/// off the main thread.
-/// `owner` is one of our windows (needed to restore the clipboard).
-pub fn capture(owner: HWND) -> Result<String, &'static str> {
+/// What a press got: the selected text, or why there's none (for the hotkey
+/// log), and — when the app's copy may still land late — the number of this
+/// press, which its late text will carry (see on_late_text).
+pub struct Captured {
+    pub text: Result<String, &'static str>,
+    pub late: Option<u64>,
+}
+
+/// The selection of the foreground app. Blocks for up to ~1.2 s (usually
+/// ~100 ms), so call it off the main thread. `owner` is one of our windows
+/// (needed to restore the clipboard).
+pub fn capture(owner: HWND) -> Captured {
+    let mut late = None;
+    let text = copy_selection(owner, &mut late);
+    Captured { text, late }
+}
+
+fn copy_selection(owner: HWND, late: &mut Option<u64>) -> Result<String, &'static str> {
     let fg = unsafe { GetForegroundWindow() };
     if fg.0.is_null() || is_ours(fg) || is_console(fg) {
         return Err("no app to copy from");
@@ -167,7 +183,7 @@ pub fn capture(owner: HWND) -> Result<String, &'static str> {
     if before != saved_seq {
         return Err("clipboard changed meanwhile"); // our copy would be stale
     }
-    send_copy();
+    let ctrl_held = send_copy();
     // Apps answer a copy within tens of ms; nothing by now usually means
     // nothing was selected (a slow app's late copy is still handled below).
     let deadline = Instant::now() + COPY_WAIT;
@@ -175,7 +191,8 @@ pub fn capture(owner: HWND) -> Result<String, &'static str> {
         if Instant::now() > deadline {
             *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some(Pending { saved, generation });
             let owner = owner.0 as isize;
-            thread::spawn(move || late_restore(owner, before, generation, target));
+            thread::spawn(move || late_restore(owner, before, generation, target, ctrl_held));
+            *late = Some(generation);
             return Err("nothing copied");
         }
         thread::sleep(Duration::from_millis(5));
@@ -224,11 +241,22 @@ pub fn capture(owner: HWND) -> Result<String, &'static str> {
         }
     };
 
-    let text = text.ok_or("copy not readable")?.split_whitespace().collect::<Vec<_>>().join(" ");
-    if text.is_empty() {
-        return Err("empty selection");
-    }
-    Ok(text.chars().take(MAX_CHARS).collect())
+    tidy(text.ok_or("copy not readable")?).ok_or("empty selection")
+}
+
+/// One line of at most MAX_CHARS, or None if there's nothing in it.
+fn tidy(text: String) -> Option<String> {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!text.is_empty()).then(|| text.chars().take(MAX_CHARS).collect())
+}
+
+/// Called with the press's number (Captured::late) and the selection when an
+/// app's copy lands after the popup has already opened without it.
+static LATE_TEXT: OnceLock<Box<dyn Fn(u64, String) + Send + Sync>> = OnceLock::new();
+
+/// Where a late copy's text goes (the popup); set once at startup.
+pub fn on_late_text(f: impl Fn(u64, String) + Send + Sync + 'static) {
+    let _ = LATE_TEXT.set(Box::new(f));
 }
 
 /// Settles the pending clipboard: if the target app's copy lands within the
@@ -236,13 +264,21 @@ pub fn capture(owner: HWND) -> Result<String, &'static str> {
 /// selected, or the user copied something themselves) leave it alone. The
 /// first change settles it: after a copy of the user's own, their new content
 /// is the clipboard to keep.
-fn late_restore(owner: isize, before: u32, generation: u64, target: u32) {
+fn late_restore(owner: isize, before: u32, generation: u64, target: u32, mut ctrl_held: bool) {
     let until = Instant::now() + LATE_WINDOW;
     loop {
+        // The hotkey's Ctrl, once let go: a later Ctrl press is the user's again.
+        if ctrl_held && !key_down(VK_CONTROL) {
+            ctrl_held = false;
+        }
         let changed = unsafe { GetClipboardSequenceNumber() } != before;
         if changed || Instant::now() > until {
-            // Ctrl physically down when the change shows up: the user's own copy.
-            let user_copy = changed && key_down(VK_CONTROL);
+            // Ctrl down when the change shows up: the user's own copy in that
+            // app. Not if it was the hotkey's own Ctrl, still held; and not
+            // while our popup is in front: a copy made there is ours, and
+            // is_late_copy already turns it down.
+            let popup_in_front = pid_of(unsafe { GetForegroundWindow() }) == std::process::id();
+            let user_copy = changed && !ctrl_held && !popup_in_front && key_down(VK_CONTROL);
             let _serial = LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let mut slot = PENDING.lock().unwrap_or_else(|e| e.into_inner());
             if !slot.as_ref().is_some_and(|p| p.generation == generation) {
@@ -256,15 +292,29 @@ fn late_restore(owner: isize, before: u32, generation: u64, target: u32) {
                 let owner = HWND(owner as *mut _);
                 let check = Check::LateCopyFrom(target);
                 let mut data = Some(pending.saved);
+                // The selection it brought is read in the same session, and
+                // handed to the popup that opened without it.
                 let opened = with_clipboard(owner, Duration::from_millis(2500), |_| {
                     let saved = data.take().expect("one session");
                     if check.holds() {
+                        let text = read_selection(());
                         restore_all(saved);
+                        text
+                    } else {
+                        None
                     }
                 });
-                if let (None, Some(saved)) = (opened, data) {
-                    let seq = unsafe { GetClipboardSequenceNumber() };
-                    restore_later(owner, saved, Check::LateCopyAt(target, seq));
+                match (opened, data) {
+                    (None, Some(saved)) => {
+                        let seq = unsafe { GetClipboardSequenceNumber() };
+                        restore_later(owner, saved, Check::LateCopyAt(target, seq));
+                    }
+                    (Some(Some(text)), _) => {
+                        if let (Some(text), Some(deliver)) = (tidy(text), LATE_TEXT.get()) {
+                            deliver(generation, text);
+                        }
+                    }
+                    _ => {}
                 }
             }
             return;
@@ -363,8 +413,10 @@ fn modifier(vk: VIRTUAL_KEY, extended: bool, up: bool) -> INPUT {
 /// matches the user's hands (a second Alt+N is still the hotkey). Mask keys
 /// around it keep any Alt or Win press/release pair from opening a menu or
 /// Start.
-fn send_copy() {
+/// True if a Ctrl was held (the hotkey's own, for Ctrl+Alt+N).
+fn send_copy() -> bool {
     let held: Vec<(VIRTUAL_KEY, bool)> = MODIFIERS.into_iter().filter(|&(vk, _)| key_down(vk)).collect();
+    let ctrl_held = held.iter().any(|&(vk, _)| vk == VK_LCONTROL || vk == VK_RCONTROL);
     let mut inputs = vec![key(MASK_KEY, false, false), key(MASK_KEY, true, false)];
     inputs.extend(held.iter().map(|&(vk, ext)| modifier(vk, ext, true)));
     inputs.extend([
@@ -377,6 +429,7 @@ fn send_copy() {
     inputs.extend(held.iter().map(|&(vk, ext)| modifier(vk, ext, false)));
     inputs.extend([key(MASK_KEY, false, false), key(MASK_KEY, true, false)]);
     unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    ctrl_held
 }
 
 /// Runs `f` with the clipboard open, retrying (with backoff) while another

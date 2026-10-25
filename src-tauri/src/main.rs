@@ -57,6 +57,15 @@ static HOTKEY_IN_USE: OnceLock<&'static str> = OnceLock::new();
 static QUICK_AUTO_HIDDEN_AT: AtomicI64 = AtomicI64::new(0);
 /// Set while the hotkey is copying the selection from the app in front.
 static CAPTURING: AtomicBool = AtomicBool::new(false);
+/// A slow app's copy, landing after the popup opened without it, goes to the
+/// popup of the press that asked for it, and only that one.
+struct Late {
+    /// The press whose popup was last opened (None: opened otherwise).
+    opened: Option<u64>,
+    /// Text that came before its popup was up.
+    waiting: Option<(u64, String)>,
+}
+static LATE: std::sync::Mutex<Late> = std::sync::Mutex::new(Late { opened: None, waiting: None });
 /// (token, task id) of the drag in progress between widgets (see `task_drag`).
 static DRAGGING: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
 use layout::MOVABLE;
@@ -135,6 +144,25 @@ fn main() {
                 create_widget(handle, label, title)?;
             }
             create_quick(handle)?;
+            // A slow app's copy that lands after the popup opened still fills it.
+            let late = handle.clone();
+            selection::on_late_text(move |press, text| {
+                hotkey_log(&late, format!("late copy: {} chars", text.chars().count()));
+                // Decided under the lock, delivered outside it: delivering waits
+                // on the main thread, which may itself be taking the lock.
+                let now = {
+                    let mut slot = LATE.lock().unwrap_or_else(|e| e.into_inner());
+                    if slot.opened == Some(press) {
+                        Some(text)
+                    } else {
+                        slot.waiting = Some((press, text)); // its popup isn't up yet
+                        None
+                    }
+                };
+                if let Some(text) = now {
+                    deliver_late(&late, text);
+                }
+            });
             layout::place_all(handle);
             for (keys, label) in HOTKEYS {
                 match app.global_shortcut().register(keys) {
@@ -287,22 +315,23 @@ fn toggle_quick(app: &AppHandle, grab_selection: bool) {
                 let _done = Done;
                 let captured = selection::capture(desktop::hwnd_from(owner));
                 let copy_ms = pressed.elapsed().as_millis();
-                let what = match &captured {
+                let what = match &captured.text {
                     Ok(text) => format!("{} chars", text.chars().count()),
                     Err(why) => why.to_string(),
                 };
-                let front = show_quick(&app, captured.ok());
+                let front = show_quick(&app, captured.text.ok(), captured.late);
                 hotkey_log(&app, format!("copy {copy_ms} ms ({what}), shown at {} ms, in front: {front}", pressed.elapsed().as_millis()));
             });
         }
         None => {
-            show_quick(app, None);
+            show_quick(app, None, None);
         }
     }
 }
 
 /// Shows the popup with the keyboard; false if Windows kept it from the front.
-fn show_quick(app: &AppHandle, text: Option<String>) -> bool {
+/// `press`: the hotkey press whose late copy may still fill it.
+fn show_quick(app: &AppHandle, text: Option<String>, press: Option<u64>) -> bool {
     let Some(win) = app.get_webview_window(QUICK) else { return false };
     layout::center_on_cursor_monitor(app, &win, QUICK_SIZE.0, QUICK_SIZE.1);
     let _ = win.show();
@@ -311,8 +340,26 @@ fn show_quick(app: &AppHandle, text: Option<String>) -> bool {
     // getter waits its turn in the same queue, so the window is up after it.
     let _ = win.is_visible();
     let front = desktop::bring_to_front(&win);
-    let _ = win.emit_to(QUICK, "quick-open", text);
+    // quick-open first, then any late text this press already got: in that
+    // order (emitting only queues; the delivery waits, so it's outside the lock).
+    let waiting = {
+        let mut slot = LATE.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = win.emit_to(QUICK, "quick-open", text);
+        slot.opened = press;
+        slot.waiting.take()
+    };
+    if let Some((_, text)) = waiting.filter(|(p, _)| Some(*p) == press) {
+        deliver_late(app, text);
+    }
     front
+}
+
+/// A late copy's text into the popup, if it's still open (closed meanwhile,
+/// it mustn't turn up later as a draft).
+fn deliver_late(app: &AppHandle, text: String) {
+    if let Some(win) = app.get_webview_window(QUICK).filter(|w| w.is_visible().unwrap_or(false)) {
+        let _ = win.emit_to(QUICK, "quick-selection", text);
+    }
 }
 
 /// One line per hotkey press in hotkey.log (local app data): how long the

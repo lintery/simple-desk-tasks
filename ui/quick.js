@@ -33,6 +33,7 @@ function showError(err) {
 }
 
 function reset() {
+  opened = null; // added or dropped: a late copy isn't for this field any more
   input.value = '';
   renderDraft();
   input.focus();
@@ -67,12 +68,26 @@ input.addEventListener('keydown', async (e) => {
 
 // Reopening keeps a draft left by clicking away; Esc and Enter clear it.
 // Text selected in another app when the hotkey was pressed replaces the draft.
+/** The field as it was when the popup opened: a selection copied late by a
+ * slow app replaces it only if nothing's been typed since. */
+let opened = null;
 listenMine('quick-open', (selected) => {
   if (selected) input.value = selected;
+  opened = input.value;
   renderDraft();
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
   api.storeStatus().then((e) => e && showError(e)).catch(() => {});
+});
+// Closed (or left) meanwhile: a late copy mustn't turn up as a draft.
+window.addEventListener('blur', () => {
+  opened = null;
+});
+listenMine('quick-selection', (selected) => {
+  if (!selected || opened === null || input.value !== opened) return;
+  input.value = opened = selected;
+  renderDraft();
+  input.setSelectionRange(input.value.length, input.value.length);
 });
 window.addEventListener('focus', () => input.focus());
 document.addEventListener('contextmenu', (e) => {
