@@ -2,7 +2,7 @@
 // "what's playing" answers, no audio (a live AudioContext stalls headless Edge).
 // Mapped over ui/lib/sounds.js by the import map in showcase-widget.html.
 
-export { SOUNDS } from '../../ui/lib/sounds.js?real';
+export { SOUNDS, RECORDED } from '../../ui/lib/sounds.js?real';
 
 export function createAudio() {
   let mix = [];
@@ -18,6 +18,7 @@ export function createAudio() {
     },
     current: () => mix[0] ?? null,
     mix: () => [...mix],
+    loading: () => [],
     setVolume() {},
     volume: () => 0.6,
     chime() {},

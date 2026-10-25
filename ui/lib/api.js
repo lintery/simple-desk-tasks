@@ -36,6 +36,8 @@ export const api = {
   focusMode: (mode) => invoke('focus_mode', { mode }),
   /** Remembers the focus sound (null = silence) and its volume (0..1). */
   focusPrefs: (mix, volume) => invoke('focus_prefs', { mix, volume }),
+  /** A recorded sound's loop (ArrayBuffer, Ogg Opus), downloaded on first use. */
+  soundRecording: (id) => invoke('sound_recording', { id }),
   settings: () => invoke('get_settings'),
   /** Saves the whole settings object; resolves to it as stored (values clamped). */
   setSettings: (settings) => invoke('set_settings', { settings }),

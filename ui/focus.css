@@ -137,4 +137,9 @@
 .tile .eq i{width:2px;height:12px;border-radius:1px;background:var(--ac);transform-origin:bottom;animation:wv 1.1s ease-in-out infinite}
 .tile .eq i:nth-child(2){animation-duration:.8s;animation-delay:-.3s}
 .tile .eq i:nth-child(3){animation-duration:1.3s;animation-delay:-.6s}
+/* its recording is on the way: the bars wait, flat and dim, breathing */
+.tile.loading .eq i{animation:ld 1s ease-in-out infinite;transform:scaleY(.25)}
+.tile.loading .eq i:nth-child(2){animation-duration:1s;animation-delay:.15s}
+.tile.loading .eq i:nth-child(3){animation-duration:1s;animation-delay:.3s}
+@keyframes ld{50%{opacity:.35}}
 .fx-snd.muted .tiles{opacity:.62}

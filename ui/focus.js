@@ -37,7 +37,9 @@ const store = {
   },
 };
 
-const audio = createAudio();
+// Rain, nature, fan and train play their recordings (downloaded the first
+// time); the tile shows the wait.
+const audio = createAudio({ load: (id) => api.soundRecording(id), onChange: () => renderSound() });
 let timer = null;
 /** A sound turned on by hand outside a running focus session; ends with the phase. */
 let manual = false;
@@ -230,13 +232,15 @@ function wanted() {
 
 function renderSound() {
   const playing = audio.mix();
+  const loading = audio.loading();
   for (const tile of $('tiles').children) {
     const id = tile.dataset.id;
     const item = mixItem(id);
     tile.classList.toggle('on', playing.includes(id));
     tile.classList.toggle('sel', !playing.includes(id) && !!item);
+    tile.classList.toggle('loading', loading.includes(id));
     tile.style.setProperty('--lvl', item ? item.level : 0);
-    tile.title = item ? 'Колёсико — громкость этого звука' : '';
+    tile.title = loading.includes(id) ? 'Загружаю запись…' : item ? 'Колёсико — громкость этого звука' : '';
   }
   const liveGroups = new Set(playing.map(groupOf));
   for (const b of $('groups').children) {

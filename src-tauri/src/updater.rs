@@ -8,7 +8,7 @@
 //! start that finds the marker (and the trial process gone) puts the old exe
 //! back and skips that version.
 
-use crate::desktop::{finish, APP_ID};
+use crate::{desktop::APP_ID, net::get};
 use minisign_verify::{PublicKey, Signature};
 use serde::Serialize;
 use std::{
@@ -26,10 +26,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_winrt_notification::Toast;
 use windows::{
-    core::{HSTRING, PWSTR},
-    Foundation::Uri,
-    Storage::Streams::DataReader,
-    Web::Http::HttpClient,
+    core::PWSTR,
     Win32::{
         Foundation::{CloseHandle, STILL_ACTIVE, WAIT_OBJECT_0},
         System::{
@@ -113,20 +110,6 @@ fn newer(a: &str, b: &str) -> bool {
         }
     }
     false
-}
-
-fn get(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
-    let fetch = || -> windows::core::Result<Vec<u8>> {
-        let client = HttpClient::new()?;
-        let headers = client.DefaultRequestHeaders()?;
-        headers.UserAgent()?.TryParseAdd(&HSTRING::from("SimpleDeskTasks-updater"))?;
-        headers.TryAppendWithoutValidation(&HSTRING::from("Accept"), &HSTRING::from("application/vnd.github+json, */*"))?;
-        let buffer = finish(client.GetBufferAsync(&Uri::CreateUri(&HSTRING::from(url))?)?, timeout)?;
-        let mut bytes = vec![0u8; buffer.Length()? as usize];
-        DataReader::FromBuffer(&buffer)?.ReadBytes(&mut bytes)?;
-        Ok(bytes)
-    };
-    fetch().map_err(|e| e.message().to_string())
 }
 
 /// Latest release: its version and the download links of the exe and its signature.

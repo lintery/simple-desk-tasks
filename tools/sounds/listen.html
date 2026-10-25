@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Петли для фокуса</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 24px; background: #17171b; color: #e8e8ee; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 18px; color: #9a9aa8; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+  .card { background: #212127; border-radius: 10px; padding: 12px 14px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+  .card.on { box-shadow: inset 0 0 0 1px #8e9fff; background: #262a3d; }
+  .top { display: flex; align-items: baseline; gap: 8px; }
+  .top b { font-size: 15px; }
+  .top span { color: #9a9aa8; font-size: 12px; }
+  .meta { color: #7d7d8a; font-size: 12px; margin: 2px 0 10px; }
+  .meta a { color: #b3bfff; text-decoration: none; }
+  .btns { display: flex; gap: 6px; }
+  button { font: inherit; font-size: 12.5px; font-weight: 600; border: 0; border-radius: 6px; padding: 5px 11px; cursor: pointer; background: #31313a; color: #e8e8ee; }
+  button.pri { background: #8e9fff; color: #14141a; }
+  .bar { height: 3px; margin-top: 10px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: #8e9fff; }
+  .vol { margin: 0 0 16px; display: flex; gap: 10px; align-items: center; color: #9a9aa8; }
+</style>
+</head>
+<body>
+<h1>Петли для фокуса</h1>
+<p class="sub">Каждая играет по кругу, как в виджете. «Перед швом» включает за 6 секунд до склейки: если щелчка или скачка не слышно, петля удалась.</p>
+<div class="vol">Громкость <input id="vol" type="range" min="0" max="1" step="0.01" value="0.6"></div>
+<div class="grid" id="grid"></div>
+<script>
+const NAMES = { 'rain-light': 'Слабый дождь', rain: 'Дождь', 'rain-heavy': 'Ливень', 'rain-wind': 'Дождь с ветром', 'rain-thunder': 'Гроза',
+  'rain-roof': 'По крыше', waves: 'Волны', fire: 'Камин', wind: 'Ветер', stream: 'Ручей', night: 'Ночь', forest: 'Лес', fan: 'Вентилятор', train: 'Поезд' };
+const ctx = new AudioContext();
+const gain = ctx.createGain();
+gain.gain.value = 0.6;
+gain.connect(ctx.destination);
+document.getElementById('vol').oninput = (e) => { gain.gain.value = +e.target.value; };
+const buffers = {};
+let playing = null; // { id, src, startedAt, offset }
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
+async function buffer(id, file) {
+  if (!buffers[id]) buffers[id] = ctx.decodeAudioData(await (await fetch(file)).arrayBuffer());
+  return buffers[id];
+}
+function stop() {
+  if (!playing) return;
+  playing.src.stop();
+  document.querySelector(`[data-id="${playing.id}"]`).classList.remove('on');
+  playing = null;
+}
+async function play(id, file, offset) {
+  await ctx.resume();
+  stop();
+  const buf = await buffer(id, file);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  src.connect(gain);
+  const at = offset < 0 ? Math.max(0, buf.duration + offset) : 0;
+  src.start(0, at);
+  playing = { id, src, startedAt: ctx.currentTime, offset: at, duration: buf.duration };
+  document.querySelector(`[data-id="${id}"]`).classList.add('on');
+}
+function tick() {
+  if (playing) {
+    const pos = (playing.offset + ctx.currentTime - playing.startedAt) % playing.duration;
+    document.querySelector(`[data-id="${playing.id}"] .bar i`).style.width = `${(pos / playing.duration) * 100}%`;
+  }
+  requestAnimationFrame(tick);
+}
+fetch('manifest.json').then((r) => r.json()).then((m) => {
+  const grid = document.getElementById('grid');
+  for (const [id, s] of Object.entries(m)) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.id = id;
+    card.innerHTML = `<div class="top"><b>${NAMES[id] ?? id}</b><span>${mmss(s.seconds)} · ${(s.bytes / 1e6).toFixed(2)} МБ</span></div>` +
+      `<div class="meta"><a href="${s.source}" target="_blank">${s.title}</a> — ${s.author}, CC0</div>` +
+      `<div class="btns"><button class="pri" data-act="play">Играть</button><button data-act="seam">Перед швом</button><button data-act="stop">Стоп</button></div>` +
+      `<div class="bar"><i></i></div>`;
+    card.addEventListener('click', (e) => {
+      const act = e.target.dataset.act;
+      if (act === 'play') play(id, s.file, 0);
+      else if (act === 'seam') play(id, s.file, -6);
+      else if (act === 'stop') stop();
+    });
+    grid.append(card);
+  }
+});
+tick();
+</script>
+</body>
+</html>

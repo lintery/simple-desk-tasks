@@ -10,7 +10,9 @@ mod layout;
 mod media;
 mod notify;
 mod selection;
+mod net;
 mod settings;
+mod sounds;
 mod store;
 mod updater;
 
@@ -102,6 +104,7 @@ fn main() {
             calendar::calendar_connect,
             calendar::calendar_disconnect,
             calendar::calendar_refresh,
+            sounds::sound_recording,
             updater::update_status,
             updater::update_check,
             updater::update_install,

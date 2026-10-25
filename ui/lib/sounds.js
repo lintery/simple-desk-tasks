@@ -1,5 +1,11 @@
-// sounds.js: procedural ambient sounds and chimes, Web Audio API only.
-// No audio files, no network, no per-sample JS at runtime. Once per AudioContext
+// sounds.js: ambient sounds and chimes, Web Audio API only.
+//
+// Rain, nature, fan and train are field recordings: seamless loops the app
+// downloads once (sounds.rs) and hands over through createAudio's `load`.
+// Without them (offline, a dev page) every sound is synthesized as below, and
+// the noises always are.
+//
+// Synthesis: no audio files, no per-sample JS at runtime. Once per AudioContext
 // (lazily, per kind) we compute noise loops, banks of short one-shot "grains"
 // (drops, snaps, bubbles, chirps...) and seamless scattered textures. At runtime
 // everything is looped / filtered / enveloped by native nodes, and discrete events
@@ -39,6 +45,20 @@ const TRIM = {
   waves: 1, fire: 1.43, wind: 1.25, stream: 0.64, night: 0.65, forest: 1.32,
   white: 0.35, pink: 0.46, brown: 0.64, fan: 0.68, train: 0.72,
 };
+
+// The recorded loops and their trim to the synthesized sounds' loudness
+// (K-weighted over the whole loop, measured offline; the fire's held to
+// +9 dB so its crackles don't push the limiter).
+const RECORDING_TRIM = {
+  'rain-light': 1.84, rain: 1.91, 'rain-heavy': 1.86, 'rain-wind': 1.8, 'rain-thunder': 1.86, 'rain-roof': 1.76,
+  waves: 2.09, fire: 2.8, wind: 1.88, stream: 1.93, night: 1.74, forest: 2.14, fan: 1.24, train: 1.19,
+};
+/** Sounds with a recording (the noises are only ever synthesized). */
+export const RECORDED = new Set(Object.keys(RECORDING_TRIM));
+/** After a failed download a sound is synthesized; it's tried again this much later. */
+const RETRY_MS = 60_000;
+/** A recording slower to arrive than this has the synthesized sound fill in meanwhile. */
+const SYNTH_AFTER_MS = 4000;
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const logRand = (a, b) => a * Math.pow(b / a, Math.random());
@@ -986,6 +1006,19 @@ export function buildSound(ctx, id, dest, { t0 = ctx.currentTime, fadeIn = FADE,
   return v;
 }
 
+// A recorded loop as a Voice: the buffer looping from a random point (so a
+// restart doesn't always open the same way), trimmed and faded in.
+export function buildRecording(ctx, id, buffer, dest, { t0 = ctx.currentTime, fadeIn = FADE } = {}) {
+  const v = new Voice(ctx, dest, t0);
+  v.fadeIn(fadeIn);
+  const s = v.add(ctx.createBufferSource());
+  s.buffer = buffer;
+  s.loop = true;
+  chain(s, v.gain(RECORDING_TRIM[id] ?? 1), v.out);
+  s.start(t0, rand(0, buffer.duration));
+  return v;
+}
+
 // Bar/bell-like partials: [frequency ratio, amplitude, decay multiplier].
 // The non-integer ratios give a soft metallic colour; high partials die fast.
 const BELL = [[1, 1, 1], [2, 0.22, 0.6], [2.76, 0.1, 0.4], [5.4, 0.03, 0.22]];
@@ -1039,12 +1072,17 @@ export function buildChime(ctx, dest, kind, when = ctx.currentTime + 0.03) {
 
 // ---------------------------------------------------------------- engine
 
-export function createAudio() {
+// Options: load(id) -> Promise<ArrayBuffer> of a sound's recorded loop (Ogg
+// Opus); without it everything is synthesized. onChange() is called when a
+// recording starts playing (or gives way to synthesis), so the page can redraw.
+export function createAudio({ load = null, onChange = () => {} } = {}) {
   let ctx = null, master = null, vol = DEFAULT_VOLUME;
   let timer = 0, idleTimer = 0, lastTick = 0;
   const live = new Map();   // id -> voice of each sound in the mix (not fading out)
   const voices = new Set(); // live + fading-out voices
   const chimes = new Set(); // scheduled chimes (+ placeholders while the context resumes)
+  const decoded = new Map(); // id -> Promise<AudioBuffer> of its recording, for this context
+  const failed = new Map();  // id -> when its recording last failed (performance.now())
 
   function ensure() {
     if (!ctx) {
@@ -1065,10 +1103,19 @@ export function createAudio() {
     for (const v of voices) {
       // retired voices are freed once their fade is over (audio clock), or after a
       // wall-clock safety margin in case the context never got to run
-      if (v.endAt != null && (now >= v.endAt || wall >= v.endWall)) { v.dispose(); v.level.disconnect(); voices.delete(v); }
-      else v.tick(now + ahead, now);
+      if (v.endAt != null && (now >= v.endAt || wall >= v.endWall)) {
+        v.dispose();
+        if (!v.handedOver) v.level.disconnect(); // a replaced voice's level gain lives on in its successor
+        voices.delete(v);
+        forget();
+      } else v.tick(now + ahead, now);
     }
     if (!voices.size) idle();
+  }
+  // A decoded loop is ~35-70 MB: keep only those of sounds in the mix (one
+  // picked again later comes back from the disk copy in a moment).
+  function forget() {
+    for (const [id, p] of decoded) if (p.settled && !live.has(id)) decoded.delete(id);
   }
   // Nothing playing: stop the scheduler and suspend the context so it costs no CPU.
   function idle() {
@@ -1105,13 +1152,80 @@ export function createAudio() {
       const g = ctx.createGain();
       g.gain.value = levelGain(level);
       g.connect(master.sounds);
-      const t0 = now + 0.05, voice = buildSound(ctx, id, g, { t0 });
+      const t0 = now + 0.05, voice = startVoice(id, g, t0);
       voice.level = g;
       live.set(id, voice);
       voices.add(voice);
       voice.tick(t0 + LOOKAHEAD, now);
     }
     if (voices.size && !timer) timer = setInterval(tick, TICK_MS);
+  }
+
+  // The recording when there is one. Until it's loaded a silent stand-in
+  // holds the sound's place in the mix; if that takes long, the synthesized
+  // sound fills in, and the recording crossfades over it when it comes. A
+  // recording that can't be had leaves the synthesized sound.
+  function startVoice(id, dest, t0) {
+    const recorded = load && RECORDED.has(id) && !(performance.now() - (failed.get(id) ?? -Infinity) < RETRY_MS);
+    if (!recorded) return buildSound(ctx, id, dest, { t0 });
+    const ready = decoded.get(id)?.settled;
+    if (ready) return buildRecording(ctx, id, ready, dest, { t0 });
+    const turn = {}; // this pick of the sound: its voices carry it
+    const standIn = new Voice(ctx, dest, t0);
+    standIn.loading = true;
+    standIn.turn = turn;
+    const c = ctx;
+    const synth = (g, t) => Object.assign(buildSound(ctx, id, g, { t0: t }), { turn });
+    const filler = setTimeout(() => {
+      if (live.get(id) === standIn) replace(id, turn, synth, true);
+    }, SYNTH_AFTER_MS);
+    recording(id).then(
+      (buffer) => { clearTimeout(filler); replace(id, turn, (g, t) => buildRecording(ctx, id, buffer, g, { t0: t })); },
+      () => {
+        clearTimeout(filler);
+        if (ctx === c) failed.set(id, performance.now());
+        const now = live.get(id);
+        if (now === standIn) replace(id, turn, synth);
+        else if (now?.turn === turn && now.loading) { now.loading = false; onChange(); } // the filler stays
+      },
+    );
+    return standIn;
+  }
+  // The decoded recording, fetched and decoded once per context.
+  function recording(id) {
+    let p = decoded.get(id);
+    if (!p) {
+      const c = ctx;
+      p = Promise.resolve()
+        .then(() => load(id))
+        .then((bytes) => c.decodeAudioData(bytes))
+        .then((buffer) => {
+          p.settled = buffer;
+          // Dropped from the mix while it loaded: don't hold it (see forget()).
+          if (!live.has(id) && decoded.get(id) === p) decoded.delete(id);
+          return buffer;
+        });
+      p.catch(() => { if (decoded.get(id) === p) decoded.delete(id); });
+      decoded.set(id, p);
+    }
+    return p;
+  }
+  // Swaps the sound's voice of this pick (`turn`) for a new one, crossfading,
+  // and reusing its level gain. Nothing happens if the sound was dropped (or
+  // the engine disposed) meanwhile.
+  function replace(id, turn, build, loading = false) {
+    const old = live.get(id);
+    if (!ctx || old?.turn !== turn) return;
+    const t0 = ctx.currentTime + 0.05, voice = build(old.level, t0);
+    voice.level = old.level;
+    voice.loading = loading;
+    old.handedOver = true;
+    retire(old);
+    live.set(id, voice);
+    voices.add(voice);
+    voice.tick(t0 + LOOKAHEAD, ctx.currentTime);
+    if (!timer) timer = setInterval(tick, TICK_MS);
+    onChange();
   }
 
   return {
@@ -1122,6 +1236,8 @@ export function createAudio() {
     current: () => live.keys().next().value ?? null,
     /** Ids of the sounds playing now, in the order they were added. */
     mix: () => [...live.keys()],
+    /** Ids in the mix still waiting for their recording. */
+    loading: () => [...live].filter(([, v]) => v.loading).map(([id]) => id),
     setVolume(v) {
       vol = clamp(Number(v) || 0, 0, 1);
       if (ctx) master.volume.gain.setTargetAtTime(volumeCurve(vol), ctx.currentTime, 0.05);
@@ -1160,6 +1276,7 @@ export function createAudio() {
       for (const v of voices) { v.dispose(); v.level.disconnect(); }
       voices.clear();
       live.clear();
+      decoded.clear();
       for (const c of [...chimes]) { c.stop(); c.cleanup(); }
       chimes.clear();
       clearInterval(timer); clearTimeout(idleTimer); timer = 0; lastTick = 0;

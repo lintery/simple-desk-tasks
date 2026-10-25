@@ -19,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 raw-window-handle = "0.6"
 minisign-verify = "0.3"
+sha2 = "0.10"
 # WinRT async operations (the same version `windows` uses)
 windows-future = "0.2"
 windows = { version = "0.61", features = [
