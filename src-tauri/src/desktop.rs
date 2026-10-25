@@ -113,7 +113,7 @@ pub fn register_toast_app(data_dir: &Path) {
     let _ = std::fs::write(&icon, include_bytes!("../icons/icon.png"));
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     if let Ok((key, _)) = hkcu.create_subkey(format!(r"Software\Classes\AppUserModelId\{APP_ID}")) {
-        let _ = key.set_value("DisplayName", &"Задачи");
+        let _ = key.set_value("DisplayName", &"Simple Desk Widgets");
         let _ = key.set_value("IconUri", &icon.to_string_lossy().to_string());
     }
 }

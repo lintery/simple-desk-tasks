@@ -393,7 +393,7 @@ pub fn confirm() {
 }
 
 pub fn announce_updated(version: &str) {
-    let _ = Toast::new(APP_ID).title("Задачи обновлены").text1(&format!("Версия {version}")).show();
+    let _ = Toast::new(APP_ID).title("Simple Desk Widgets обновлён").text1(&format!("Версия {version}")).show();
 }
 
 /// Restarting now would lose what the user is doing: a focus session, text

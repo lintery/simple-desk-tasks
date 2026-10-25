@@ -1,4 +1,4 @@
-/* «Календарь»: meetings from Mail.ru, a tall column on the right. */
+/* «Календарь»: meetings from the connected calendars, a tall column on the right. */
 :root{--ac-txt:#b3bfff}
 .cal button svg{pointer-events:none}
 /* header: sync status where the other widgets keep their counters */

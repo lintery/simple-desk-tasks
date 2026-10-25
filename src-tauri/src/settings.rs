@@ -74,7 +74,7 @@ impl Modes {
     }
 }
 
-/// A calendar found on the CalDAV account.
+/// A calendar of an account: a CalDAV collection, or the one an .ics link holds.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CalendarRef {
@@ -85,6 +85,28 @@ pub struct CalendarRef {
     pub enabled: bool,
 }
 
+/// A connected calendar account: CalDAV with an app password (Mail.ru,
+/// Яндекс, iCloud, any server) or a subscription by .ics link (Google,
+/// Outlook, any). The password or the secret link is kept in the Windows
+/// Credential Manager under the account's id, never here.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CalendarAccount {
+    pub id: String,
+    /// "mailru" | "yandex" | "icloud" | "caldav" | "google" | "outlook" | "ics"
+    pub provider: String,
+    /// What the user knows it by: the login, or the calendar's name.
+    pub label: String,
+    /// CalDAV: where the server is; for a link: just its site (the link is secret).
+    pub server: String,
+    pub calendars: Vec<CalendarRef>,
+}
+
+/// Mail.ru's CalDAV server (the account from before there were several).
+pub const MAILRU_SERVER: &str = "https://calendar.mail.ru";
+/// The id the old single Mail.ru account moves to.
+pub const LEGACY_ACCOUNT: &str = "mailru";
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -93,9 +115,12 @@ pub struct Settings {
     pub backup_dir: String,
     pub autostart: bool,
     pub auto_update: bool,
-    /// Mail.ru account of the calendar (its app password is in the Windows
-    /// Credential Manager, never here); empty = not connected.
+    pub calendar_accounts: Vec<CalendarAccount>,
+    /// Before several accounts: the one Mail.ru login and its calendars. Read
+    /// once and moved into calendar_accounts (see sanitize).
+    #[serde(skip_serializing)]
     pub calendar_email: String,
+    #[serde(skip_serializing)]
     pub calendars: Vec<CalendarRef>,
 }
 
@@ -107,6 +132,7 @@ impl Default for Settings {
             backup_dir: DEFAULT_BACKUP_DIR.to_string(),
             autostart: true,
             auto_update: true,
+            calendar_accounts: Vec::new(),
             calendar_email: String::new(),
             calendars: Vec::new(),
         }
@@ -118,7 +144,23 @@ impl Settings {
         for m in [&mut self.modes.pomodoro, &mut self.modes.focus50, &mut self.modes.deep90] {
             m.sanitize();
         }
-        self.calendars.retain(|c| !hidden_calendar(&c.name));
+        // The old single Mail.ru account becomes the first of the accounts.
+        if !self.calendar_email.trim().is_empty() && !self.calendar_accounts.iter().any(|a| a.id == LEGACY_ACCOUNT) {
+            self.calendar_accounts.insert(0, CalendarAccount {
+                id: LEGACY_ACCOUNT.into(),
+                provider: "mailru".into(),
+                label: self.calendar_email.trim().to_string(),
+                server: MAILRU_SERVER.into(),
+                calendars: std::mem::take(&mut self.calendars),
+            });
+        }
+        self.calendar_email.clear();
+        self.calendars.clear();
+        let mut seen = std::collections::HashSet::new();
+        self.calendar_accounts.retain(|a| !a.id.is_empty() && seen.insert(a.id.clone()));
+        for account in &mut self.calendar_accounts {
+            account.calendars.retain(|c| !hidden_calendar(&c.name));
+        }
         self.backup_dir = self.backup_dir.trim().to_string();
         if self.backup_dir.is_empty() {
             self.backup_dir = DEFAULT_BACKUP_DIR.to_string();
@@ -212,20 +254,32 @@ fn save(state: &State, value: &Settings) -> Result<(), String> {
     fs::rename(&tmp, &state.path).map_err(|e| crate::errors::file(&e, NOT_SAVED))
 }
 
-/// What the settings window sends, applied over `current`. The calendar
-/// account is the calendar's to change (connect / disconnect), so a page that
-/// hasn't heard of a change yet can't undo it: only the on/off switches of
-/// calendars the account still has are taken from it.
+/// What the settings window sends, applied over `current`. Calendar accounts
+/// are the calendar's to change (connect / disconnect), so a page that hasn't
+/// heard of a change yet can't undo it: only the on/off switches of calendars
+/// the accounts still have are taken from it.
 fn merge(current: &Settings, page: Settings) -> Settings {
-    let calendars = current
-        .calendars
+    let calendar_accounts = current
+        .calendar_accounts
         .iter()
-        .map(|c| CalendarRef {
-            enabled: page.calendars.iter().find(|p| p.url == c.url).map_or(c.enabled, |p| p.enabled),
-            ..c.clone()
+        .map(|a| {
+            let theirs = page.calendar_accounts.iter().find(|p| p.id == a.id);
+            CalendarAccount {
+                calendars: a
+                    .calendars
+                    .iter()
+                    .map(|c| CalendarRef {
+                        enabled: theirs
+                            .and_then(|p| p.calendars.iter().find(|pc| pc.url == c.url))
+                            .map_or(c.enabled, |pc| pc.enabled),
+                        ..c.clone()
+                    })
+                    .collect(),
+                ..a.clone()
+            }
         })
         .collect();
-    let mut next = Settings { calendar_email: current.calendar_email.clone(), calendars, ..page };
+    let mut next = Settings { calendar_accounts, calendar_email: String::new(), calendars: Vec::new(), ..page };
     next.sanitize();
     next
 }
@@ -270,27 +324,55 @@ mod tests {
         assert!(s.backup_enabled && s.autostart && s.auto_update);
     }
 
+    fn account(id: &str, calendars: Vec<CalendarRef>) -> CalendarAccount {
+        CalendarAccount { id: id.into(), provider: "yandex".into(), label: id.into(), server: "s".into(), calendars }
+    }
+
     #[test]
     fn page_cannot_undo_calendar_changes() {
         let cal = |url: &str, enabled| CalendarRef { url: url.into(), name: url.into(), enabled, ..Default::default() };
-        let current = Settings { calendar_email: "me@mail.ru".into(), calendars: vec![cal("a", true), cal("b", true)], ..Default::default() };
-        // A page from before the connect, switching "b" off, an unknown "c" on and autostart off.
-        let page = Settings { autostart: false, calendars: vec![cal("b", false), cal("c", true)], ..Default::default() };
+        let current = Settings { calendar_accounts: vec![account("x", vec![cal("a", true), cal("b", true)])], ..Default::default() };
+        // A page from before the connect: switches "b" off, has an unknown
+        // account and calendar, and turns autostart off.
+        let page = Settings {
+            autostart: false,
+            calendar_accounts: vec![account("x", vec![cal("b", false), cal("c", true)]), account("old", vec![])],
+            ..Default::default()
+        };
         let next = merge(&current, page);
-        assert_eq!(next.calendar_email, "me@mail.ru");
-        assert_eq!(next.calendars, vec![cal("a", true), cal("b", false)]);
+        assert_eq!(next.calendar_accounts, vec![account("x", vec![cal("a", true), cal("b", false)])]);
         assert!(!next.autostart);
         // After a disconnect the page's account doesn't come back.
         let gone = merge(&Settings::default(), current);
-        assert!(gone.calendar_email.is_empty() && gone.calendars.is_empty());
+        assert!(gone.calendar_accounts.is_empty());
+    }
+
+    #[test]
+    fn the_old_mail_ru_account_moves_over() {
+        let cal = |name: &str| CalendarRef { url: name.into(), name: name.into(), enabled: true, ..Default::default() };
+        let mut s: Settings = serde_json::from_str(r#"{"calendarEmail":"me@mail.ru","calendars":[{"url":"u","name":"Основной","enabled":true}]}"#).unwrap();
+        s.sanitize();
+        assert_eq!(s.calendar_accounts.len(), 1);
+        let a = &s.calendar_accounts[0];
+        assert_eq!((a.id.as_str(), a.provider.as_str(), a.label.as_str()), (LEGACY_ACCOUNT, "mailru", "me@mail.ru"));
+        assert_eq!(a.calendars, vec![CalendarRef { url: "u".into(), ..cal("Основной") }]);
+        // Saved without the old fields; loading that again changes nothing.
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("calendarEmail"));
+        let mut again: Settings = serde_json::from_str(&json).unwrap();
+        again.sanitize();
+        assert_eq!(again, s);
     }
 
     #[test]
     fn holiday_feed_is_left_out() {
         let cal = |name: &str| CalendarRef { url: name.into(), name: name.into(), enabled: true, ..Default::default() };
-        let mut s = Settings { calendars: vec![cal("Основной"), cal("События в этот день"), cal("СОБЫТИЯ в\u{a0}этот  день")], ..Default::default() };
+        let mut s = Settings {
+            calendar_accounts: vec![account("x", vec![cal("Основной"), cal("События в этот день"), cal("СОБЫТИЯ в\u{a0}этот  день")])],
+            ..Default::default()
+        };
         s.sanitize();
-        assert_eq!(s.calendars, vec![cal("Основной")]);
+        assert_eq!(s.calendar_accounts[0].calendars, vec![cal("Основной")]);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-// «Календарь»: meetings from the Mail.ru calendar (calendar.rs), read-only —
+// «Календарь»: meetings from the connected calendars (calendar.rs), read-only —
 // the month with a dot per calendar on busy days, and an agenda from today.
 
 import { api, listenAll } from './lib/api.js';
@@ -68,15 +68,15 @@ function renderHeader() {
   const ago = state.updated ? Date.now() - state.updated : null;
   const text = state.syncing ? 'обновляю' : ago == null ? '' : ago < MIN ? 'только что' : ago < 60 * MIN ? `${Math.round(ago / MIN)} мин назад` : hm(state.updated);
   setHTML(sync, `<svg class="i"><use href="#i-sync"/></svg>${text}`);
-  sync.title = 'Mail.ru · обновить сейчас';
+  sync.title = 'Обновить сейчас';
 }
 
 function renderState() {
   const box = $('state');
   if (!state.configured) {
     setHTML(box, '<div class="cta"><div class="cta-top"><span class="cta-ic"><svg class="i"><use href="#i-cal"/></svg></span>' +
-      '<div><h3>Встречи из календаря Mail.ru</h3><p>Сегодня и ближайшие дни, ссылки на&nbsp;созвоны. Только чтение.</p></div></div>' +
-      '<button class="btn pri" id="connect">Подключить календарь Mail.ru</button></div>');
+      '<div><h3>Встречи из ваших календарей</h3><p>Google, Mail.ru, Яндекс, iCloud, Outlook. Сегодня и ближайшие дни, ссылки на&nbsp;созвоны. Только чтение.</p></div></div>' +
+      '<button class="btn pri" id="connect">Подключить календарь</button></div>');
   } else if (state.error) {
     const when = state.updated ? `Показаны данные на ${hm(state.updated)}` : 'Встречи пока не загружены';
     setHTML(box, `<div class="banner err"><svg class="i"><use href="#i-alert"/></svg><div><b>${esc(state.error)}</b>${when}</div>` +

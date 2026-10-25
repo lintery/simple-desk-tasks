@@ -84,10 +84,16 @@ const settings = {
   modes: { pomodoro: { focus: 25, short: 5, long: 15, every: 4 }, focus50: { focus: 50, short: 10, long: 10, every: 0 },
     deep90: { focus: 90, short: 20, long: 20, every: 0 } },
   backupEnabled: true, backupDir: 'D:\\OneDrive\\Задачи', autostart: true, autoUpdate: true,
-  calendarEmail: 'name@mail.ru',
-  calendars: [{ url: 'a', name: 'Рабочий', color: WORK, enabled: true }, { url: 'b', name: 'Личный', color: HOME, enabled: true },
-    { url: 'c', name: 'Дни рождения', color: BDAY, enabled: true }, { url: 'd', name: 'Праздники', color: '#d797c9', enabled: false }],
+  calendarAccounts: q.get('nocal') ? [] : [
+    { id: 'mailru', provider: 'mailru', label: 'name@mail.ru', server: 'https://calendar.mail.ru',
+      calendars: [{ url: 'a', name: 'Рабочий', color: WORK, enabled: true }, { url: 'b', name: 'Личный', color: HOME, enabled: true },
+        { url: 'c', name: 'Дни рождения', color: BDAY, enabled: true }] },
+    { id: 'google-1', provider: 'google', label: 'Семья', server: '',
+      calendars: [{ url: 'link', name: 'Семья', color: '#4285f4', enabled: true }] },
+  ],
 };
+const accounts = [{ id: 'mailru', error: null, updated: now - 2 * 60_000 },
+  { id: 'google-1', error: 'Google не отдаёт календарь по этой ссылке — проверьте, что она скопирована целиком', updated: null }];
 const backdrop = { monW: 1560, monH: 900, winX: +q.get('x') || 0, winY: +q.get('y') || 0, scale: 1, style: 'fill', ver: 1 };
 const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
 Object.defineProperty(HTMLImageElement.prototype, 'src', {
@@ -108,7 +114,7 @@ window.__TAURI__ = {
       focus_prefs: structuredClone(focus),
       media_state: structuredClone(media),
       get_settings: structuredClone(settings),
-      calendar_state: { configured: !q.get('nocal'), meetings: q.get('nocal') ? [] : structuredClone(meetings), updated: now - 2 * MIN, error: null, syncing: false },
+      calendar_state: { configured: !q.get('nocal'), meetings: q.get('nocal') ? [] : structuredClone(meetings), updated: now - 2 * MIN, error: null, syncing: false, accounts: q.get('nocal') ? [] : accounts },
       update_status: { current: '1.1.0', latest: '1.1.0', state: 'uptodate', message: null, checkedAt: now - 25 * 60_000 },
       app_version: '1.1.0',
     })[cmd] ?? null),

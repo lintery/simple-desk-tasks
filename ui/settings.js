@@ -1,5 +1,6 @@
-// «Настройки»: calendar account, focus durations, backup folder, autostart,
-// updates. Every change is saved at once (settings.rs) and reaches the widgets.
+// «Настройки»: calendar accounts, focus durations, backup folder, general,
+// updates — one section at a time. Every change is saved at once
+// (settings.rs) and reaches the widgets.
 
 import { api, listenAll, listenMine } from './lib/api.js';
 import { esc } from './lib/icons.js';
@@ -12,24 +13,113 @@ const show = (el, on) => {
 const MODES = [['pomodoro', 'Помодоро', true], ['focus50', 'Фокус', false], ['deep90', 'Глубокий', false]];
 /** Step, min and max of each duration. */
 const STEPS = { focus: [5, 5, 240], short: [1, 1, 60], long: [5, 5, 90], every: [1, 1, 12] };
-const ID_MAIL = 'https://id.mail.ru/security';
+const SECTIONS = ['calendar', 'focus', 'backup', 'general', 'updates'];
+
+/** Calendars one can connect, and how to get what each needs. */
+const PROVIDERS = [
+  {
+    id: 'google', name: 'Google', sub: 'по закрытой ссылке iCal', color: '#4285f4', letter: 'G', kind: 'link',
+    steps: [
+      'Откройте <a data-url="https://calendar.google.com/calendar/r/settings">настройки Google Календаря</a>',
+      'Слева выберите свой календарь, затем <b>Интеграция календаря</b>',
+      'Скопируйте <b>Закрытый адрес в формате iCal</b> и вставьте ниже',
+    ],
+    note: 'Google обновляет такую ссылку раз в несколько часов',
+  },
+  {
+    id: 'mailru', name: 'Mail.ru', sub: 'почта и пароль приложения', color: '#005ff9', letter: '@', kind: 'caldav',
+    login: ['Почта', 'name@mail.ru'],
+    steps: [
+      'Откройте <a data-url="https://id.mail.ru/security">id.mail.ru → Безопасность</a>',
+      'В <b>Паролях для внешних приложений</b> создайте пароль с доступом к календарю',
+      'Вставьте почту и этот пароль ниже',
+    ],
+  },
+  {
+    id: 'yandex', name: 'Яндекс', sub: 'логин и пароль приложения', color: '#fc3f1d', letter: 'Я', kind: 'caldav',
+    login: ['Логин или почта', 'name@yandex.ru'],
+    steps: [
+      'Откройте <a data-url="https://id.yandex.ru/security/app-passwords">id.yandex.ru → Пароли приложений</a>',
+      'Создайте пароль для <b>Календаря (CalDAV)</b>',
+      'Вставьте логин и этот пароль ниже',
+    ],
+  },
+  {
+    id: 'icloud', name: 'iCloud', sub: 'Apple ID и пароль приложения', color: '#6e7787', letter: '', kind: 'caldav',
+    login: ['Apple ID', 'name@icloud.com'],
+    steps: [
+      'Откройте <a data-url="https://account.apple.com/account/manage">account.apple.com</a>, раздел <b>Вход и безопасность</b>',
+      'В <b>Паролях приложений</b> создайте пароль',
+      'Вставьте Apple ID и этот пароль ниже',
+    ],
+  },
+  {
+    id: 'outlook', name: 'Outlook', sub: 'по опубликованной ссылке', color: '#0f6cbd', letter: 'O', kind: 'link',
+    steps: [
+      'Откройте <a data-url="https://outlook.live.com/calendar/0/options/calendar/SharedCalendars">Outlook → Параметры → Общие календари</a>',
+      'В <b>Опубликовать календарь</b> выберите календарь и «Может просматривать все сведения»',
+      'Скопируйте ссылку <b>ICS</b> и вставьте ниже',
+    ],
+  },
+  {
+    id: 'caldav', name: 'Свой CalDAV', sub: 'Nextcloud, Synology и другие', color: '#3aa58a', letter: '⌂', kind: 'caldav', server: true,
+    login: ['Логин', ''],
+    steps: [
+      'Адрес CalDAV есть в настройках вашего сервера, например <b>https://cloud.example.com/remote.php/dav</b>',
+      'Вместо основного пароля лучше создать пароль приложения',
+    ],
+  },
+  {
+    id: 'ics', name: 'Ссылка .ics', sub: 'любой календарь по ссылке', color: '#9c6ade', letter: '⇣', kind: 'link',
+    steps: ['Вставьте ссылку на календарь: <b>https://…/calendar.ics</b> или <b>webcal://…</b>'],
+  },
+];
+const providerOf = (id) => PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[PROVIDERS.length - 1];
 
 let settings = null;
 let saveTimer = 0;
 let calendar = null;
 let update = null;
-/** A connect is being checked: the button stays «Проверяю…». */
-let connecting = false;
+/** The form being filled: { provider, account? (reconnecting) }, or null. */
+let adding = null;
+/** Account whose «Отключить» was pressed once (a second press confirms). */
+let confirming = null;
+let confirmTimer = 0;
 
 const hm = (ms) => new Date(ms).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+const ago = (ms) => {
+  const min = Math.round((Date.now() - ms) / 60_000);
+  return min < 1 ? 'только что' : min < 60 ? `${min} мин назад` : `в ${hm(ms)}`;
+};
+
+/** Sets markup only when it changes: a node replaced under a pressed mouse
+ * (the 30 s redraw, calendar events) swallows the click. */
+function setHTML(el, html) {
+  if (el.dataset.html === html) return;
+  el.dataset.html = html;
+  el.innerHTML = html;
+}
+
+/** A short note at the top (what didn't work), gone after a while. */
+let toastTimer = 0;
+function toast(text) {
+  $('toast').textContent = text;
+  show($('toast'), true);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => show($('toast'), false), 6000);
+}
 
 /** Saves soon; while a save waits, the page's own values win over echoes.
- * The reply is what was saved (settings.rs keeps the calendar account its own). */
+ * The reply is what was saved (settings.rs keeps the calendar accounts its own).
+ * A failed save says why and shows what's really stored. */
 function save(delay = 250) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = 0;
-    api.setSettings(settings).then(applySettings).catch(() => api.settings().then(applySettings));
+    api.setSettings(settings).then(applySettings).catch((e) => {
+      toast(String(e));
+      api.settings().then(applySettings).catch(() => {});
+    });
   }, delay);
 }
 
@@ -39,110 +129,209 @@ function applySettings(s) {
   render();
 }
 
-// ---------- calendar ----------
+// ---------- sections ----------
 
-function renderCalendar() {
-  const connected = !!settings.calendarEmail;
-  const email = $('email');
-  email.readOnly = connected;
-  if (connected) email.value = settings.calendarEmail;
-  $('email-box').classList.toggle('ro', connected);
-  const pass = $('pass');
-  pass.readOnly = connected;
-  if (connected) {
-    pass.value = '';
-    pass.placeholder = 'сохранён в Windows';
+function goTo(section) {
+  const sec = SECTIONS.includes(section) ? section : 'calendar';
+  for (const s of SECTIONS) show($(`sec-${s}`), s === sec);
+  for (const b of $('nav').querySelectorAll('button')) b.classList.toggle('sel', b.dataset.sec === sec);
+  try { localStorage.setItem('settings.section', sec); } catch {}
+  $('nav').dataset.sec = sec;
+  // Asked to open at the calendar with nothing connected: straight to the choice.
+  if (section === 'calendar' && settings && !settings.calendarAccounts.length && !adding) openPicker();
+}
+
+$('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-sec]');
+  if (b) goTo(b.dataset.sec);
+});
+
+// ---------- calendars ----------
+
+const accountState = (id) => calendar?.accounts?.find((a) => a.id === id);
+
+function logo(p) {
+  return `<span class="logo" style="--lc:${p.color}">${p.letter ? esc(p.letter) : '<svg class="i" style="width:15px;height:15px"><use href="#i-cal"/></svg>'}</span>`;
+}
+
+function renderAccounts() {
+  const accounts = settings.calendarAccounts;
+  const html = accounts.map((a, i) => {
+    const p = providerOf(a.provider);
+    const st = accountState(a.id);
+    const status = st?.error
+      ? `<span class="bad">${esc(st.error)}</span>`
+      : calendar?.syncing && !st?.updated
+        ? '<span>обновляю…</span>'
+        : st?.updated
+          ? `<span class="ok">обновлено ${ago(st.updated)}</span>`
+          : '<span>подключаю…</span>';
+    const confirm = confirming === a.id;
+    const cals = a.calendars.length > 1
+      ? `<div class="hr"></div><div class="cals">${a.calendars.map((c, j) =>
+        `<button class="ck${c.enabled ? ' on' : ''}" data-acc="${i}" data-cal="${j}" style="--c:${esc(c.color || 'var(--ac)')}">` +
+        `<span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="sw-dot"></span><span>${esc(c.name)}</span></button>`).join('')}</div>`
+      : '';
+    const title = a.label && a.label !== p.name ? `${p.name} · ${esc(a.label)}` : p.name;
+    return `<div class="card acc"><div class="acc-h">${logo(p)}<div class="acc-t"><b title="${esc(a.label)}">${title}</b>${status}</div>` +
+      '<div class="acc-a">' +
+      `<button class="btn ghost" data-redo="${i}">${p.kind === 'link' ? 'Сменить ссылку' : 'Сменить пароль'}</button>` +
+      `<button class="btn ${confirm ? 'sub danger' : 'ghost'}" data-drop="${i}">${confirm ? 'Точно отключить?' : 'Отключить'}</button>` +
+      `</div></div>${cals}</div>`;
+  }).join('');
+  setHTML($('accounts'), accounts.length || adding ? html
+    : '<div class="card empty"><b>Календари не подключены</b>Подключите Google, Mail.ru, Яндекс, iCloud, Outlook или любой календарь по ссылке.</div>');
+  show($('add-cal'), !adding);
+  const trouble = accounts.some((a) => accountState(a.id)?.error);
+  $('nav-cal').className = trouble ? 'bad' : '';
+  $('nav-cal').textContent = trouble || !accounts.length ? '' : String(accounts.length);
+}
+
+function openPicker() {
+  adding = { picking: true };
+  setHTML($('providers'), PROVIDERS.map((p) =>
+    `<button class="prov" data-prov="${p.id}">${logo(p)}<span><b>${p.name}</b><span>${p.sub}</span></span></button>`).join(''));
+  show($('picker'), true);
+  show($('form'), false);
+  renderAccounts();
+}
+
+function openForm(providerId, account = null) {
+  const p = providerOf(providerId);
+  adding = { provider: p.id, account: account?.id ?? null };
+  $('form-title').textContent = account ? `${p.name}: ${p.kind === 'link' ? 'новая ссылка' : 'новый пароль'}` : `Подключить ${p.name}`;
+  $('form-steps').innerHTML = p.steps.map((s) => `<li>${s}</li>`).join('');
+  const field = (id, label, icon, type, value, ph) =>
+    `<div class="fld"><label for="${id}">${label}</label><div class="inp"><svg class="i"><use href="#${icon}"/></svg>` +
+    `<input id="${id}" type="${type}" value="${esc(value)}" placeholder="${esc(ph)}" autocomplete="off" spellcheck="false">` +
+    (type === 'password' ? `<button class="ib" data-peek="${id}" title="Показать"><svg class="i"><use href="#i-eye"/></svg></button>` : '') +
+    '</div></div>';
+  const fields = [];
+  if (p.kind === 'link') {
+    fields.push(field('f-secret', 'Ссылка на календарь', 'i-link', 'password', '', 'https://… или webcal://…'));
   } else {
-    pass.placeholder = '';
+    if (p.server) fields.push(field('f-server', 'Адрес сервера CalDAV', 'i-server', 'url', account?.server ?? '', 'https://'));
+    fields.push(field('f-login', p.login[0], 'i-mail', 'email', account?.label ?? '', p.login[1]));
+    fields.push(field('f-secret', 'Пароль приложения', 'i-key', 'password', '', ''));
   }
-  $('pass-box').classList.toggle('ro', connected);
-  show($('peek'), !connected);
-  const btn = $('connect');
-  if (!connecting) {
-    btn.textContent = connected ? 'Отключить' : 'Подключить';
-    btn.className = connected ? 'btn sub' : 'btn pri';
-  }
-  $('cal-list').hidden = !connected || !settings.calendars.length;
-  $('cal-count').textContent = settings.calendars.length ? `найдено ${settings.calendars.length}` : '';
-  // Rebuilt on every calendar event and every 30 s: only when it changed, or
-  // a click landing on the rebuild is lost.
-  const cals = settings.calendars.map((c, i) =>
-    `<button class="ck${c.enabled ? ' on' : ''}" data-cal="${i}" style="--c:${esc(c.color || 'var(--ac)')}">` +
-    `<span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="sw-dot"></span><span>${esc(c.name)}</span></button>`,
-  ).join('');
-  if ($('cals').dataset.html !== cals) {
-    $('cals').dataset.html = cals;
-    $('cals').innerHTML = cals;
-  }
-  const st = $('cal-st');
-  st.className = 'st';
-  st.textContent = '';
-  st.title = '';
-  if (connected && calendar) {
-    if (calendar.error) {
-      st.classList.add('bad');
-      st.textContent = 'нет доступа';
-      st.title = calendar.error;
-    } else {
-      st.classList.add('ok');
-      const ago = calendar.updated ? Math.round((Date.now() - calendar.updated) / 60_000) : null;
-      st.textContent = ago == null ? 'подключён' : `подключён · обновлено ${ago < 1 ? 'только что' : `${ago} мин назад`}`;
-      st.title = '';
-    }
-  }
+  $('form-fields').innerHTML = fields.join('');
+  $('form-note').textContent = p.note ?? 'Пароль и ссылка хранятся в Диспетчере учётных данных Windows';
+  formError('');
+  // Another form's connect still running: this one waits for it.
+  $('form-go').textContent = connecting ? 'Проверяю…' : account ? 'Сохранить' : 'Подключить';
+  $('form-go').disabled = !!connecting;
+  show($('picker'), false);
+  show($('form'), true);
+  renderAccounts();
+  ($('f-server')?.value === '' ? $('f-server') : !$('f-login') || $('f-login').value ? $('f-secret') : $('f-login'))?.focus();
 }
 
-function calError(text) {
-  $('cal-err').hidden = !text;
-  $('cal-err').textContent = text || '';
+function closeAdding() {
+  adding = null;
+  show($('picker'), false);
+  show($('form'), false);
+  renderAccounts();
 }
 
-$('connect').addEventListener('click', async () => {
-  const btn = $('connect');
-  calError('');
-  if (settings.calendarEmail) {
-    btn.disabled = true;
-    try {
-      await api.calendarDisconnect();
-      $('email').value = '';
-    } catch (e) {
-      calError(String(e));
-    }
-    btn.disabled = false;
-    return;
-  }
-  const email = $('email').value.trim();
-  const pass = $('pass').value;
-  if (!email.includes('@') || !pass.trim()) {
-    calError('Нужны почта и пароль для внешних приложений');
-    return;
-  }
-  btn.disabled = true;
-  btn.textContent = 'Проверяю…';
-  connecting = true;
+function formError(text) {
+  show($('form-err'), !!text);
+  $('form-err').textContent = text || '';
+}
+
+/** The form whose connect is under way: one at a time, and its answer only
+ * touches the form if that's still the one on screen. */
+let connecting = null;
+
+async function submitForm() {
+  if (!adding?.provider || connecting) return;
+  const form = adding;
+  const value = (id) => $(id)?.value.trim() ?? '';
+  const request = {
+    provider: form.provider,
+    login: value('f-login'),
+    secret: value('f-secret'),
+    server: value('f-server'),
+    account: form.account,
+  };
+  const go = $('form-go');
+  connecting = form;
+  go.disabled = true;
+  go.textContent = 'Проверяю…';
+  formError('');
   try {
-    await api.calendarConnect(email, pass);
-    $('pass').value = '';
-    settings = await api.settings();
+    await api.calendarConnect(request);
+    settings = await api.settings().catch(() => settings);
+    if (adding === form) closeAdding();
+    render();
   } catch (e) {
-    calError(String(e));
+    if (adding === form) formError(String(e));
+  } finally {
+    connecting = null;
+    if (adding?.provider) {
+      go.disabled = false;
+      go.textContent = adding.account ? 'Сохранить' : 'Подключить';
+    }
   }
-  connecting = false;
-  btn.disabled = false;
-  render();
+}
+
+$('add-cal').addEventListener('click', openPicker);
+$('picker-back').addEventListener('click', closeAdding);
+$('form-back').addEventListener('click', () => (adding?.account ? closeAdding() : openPicker()));
+$('providers').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-prov]');
+  if (b) openForm(b.dataset.prov);
 });
-$('peek').addEventListener('click', () => {
-  const pass = $('pass');
-  pass.type = pass.type === 'password' ? 'text' : 'password';
+$('form-go').addEventListener('click', submitForm);
+$('form').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target instanceof HTMLInputElement) submitForm();
+  if (e.key === 'Escape') closeAdding();
 });
-$('open-id').addEventListener('click', () => api.openUrl(ID_MAIL).catch(() => {}));
-$('cals').addEventListener('click', (e) => {
-  const b = e.target.closest('.ck');
-  if (!b) return;
-  const c = settings.calendars[+b.dataset.cal];
-  c.enabled = !c.enabled;
-  render();
-  save(0);
+$('form').addEventListener('click', (e) => {
+  const link = e.target.closest('a[data-url]');
+  if (link) api.openUrl(link.dataset.url).catch((err) => toast(String(err)));
+  const peek = e.target.closest('[data-peek]');
+  if (peek) {
+    const input = $(peek.dataset.peek);
+    input.type = input.type === 'password' ? 'text' : 'password';
+  }
+});
+$('accounts').addEventListener('click', async (e) => {
+  const ck = e.target.closest('.ck');
+  if (ck) {
+    const c = settings.calendarAccounts[+ck.dataset.acc].calendars[+ck.dataset.cal];
+    c.enabled = !c.enabled;
+    renderAccounts();
+    save(0);
+    return;
+  }
+  const redo = e.target.closest('[data-redo]');
+  if (redo) {
+    const a = settings.calendarAccounts[+redo.dataset.redo];
+    openForm(a.provider, a);
+    return;
+  }
+  const drop = e.target.closest('[data-drop]');
+  if (drop) {
+    const a = settings.calendarAccounts[+drop.dataset.drop];
+    if (confirming !== a.id) {
+      confirming = a.id;
+      clearTimeout(confirmTimer);
+      confirmTimer = setTimeout(() => {
+        confirming = null;
+        renderAccounts();
+      }, 4000);
+      renderAccounts();
+      return;
+    }
+    confirming = null;
+    try {
+      await api.calendarDisconnect(a.id);
+      settings = await api.settings();
+      render();
+    } catch (err) {
+      toast(String(err));
+    }
+  }
 });
 
 // ---------- focus ----------
@@ -157,7 +346,7 @@ function renderModes() {
     `<div class="md"><b>${title}</b></div>${stepper(mode, 'focus')}${stepper(mode, 'short')}` +
     (long ? `${stepper(mode, 'long')}${stepper(mode, 'every')}` : '<div class="na">—</div><div class="na">—</div>'),
   );
-  $('modes').innerHTML = head.join('') + rows.join('');
+  setHTML($('modes'), head.join('') + rows.join(''));
 }
 
 $('modes').addEventListener('click', (e) => {
@@ -200,6 +389,7 @@ $('autostart').addEventListener('click', () => {
 function renderUpdate() {
   const u = update ?? { state: 'idle' };
   $('version').textContent = u.current ?? '';
+  $('side-ver').textContent = u.current ? `версия ${u.current}` : '';
   const tag = $('upd-tag');
   show(tag, u.state === 'uptodate' || u.state === 'ready');
   tag.className = u.state === 'ready' ? 'tag new' : 'tag';
@@ -216,6 +406,8 @@ function renderUpdate() {
   $('check').disabled = u.state === 'checking' || u.state === 'unsupported';
   $('check').classList.toggle('busy', u.state === 'checking');
   show($('install'), u.state === 'ready');
+  $('nav-upd').className = u.state === 'ready' ? 'new' : '';
+  $('nav-upd').textContent = u.state === 'ready' ? 'новая' : '';
 }
 
 $('auto-update').addEventListener('click', () => {
@@ -242,7 +434,7 @@ $('install').addEventListener('click', () => {
 
 function render() {
   if (!settings) return;
-  renderCalendar();
+  renderAccounts();
   renderModes();
   toggle('backup-on', settings.backupEnabled);
   $('backup-dir').textContent = settings.backupDir;
@@ -252,11 +444,6 @@ function render() {
   renderUpdate();
 }
 
-function goTo(section) {
-  if (section) document.getElementById(`sec-${section}`)?.scrollIntoView({ block: 'start' });
-  if (section === 'calendar' && !settings?.calendarEmail) $('email').focus();
-}
-
 listenAll('settings-changed', applySettings);
 listenAll('update-status', (u) => {
   update = u;
@@ -264,14 +451,20 @@ listenAll('update-status', (u) => {
 });
 listenAll('calendar', (c) => {
   calendar = c;
-  if (settings) renderCalendar();
+  if (settings) renderAccounts();
 });
 listenMine('settings-section', goTo);
+api.hotkey().then((k) => {
+  $('hotkey').textContent = k || 'не назначена';
+}).catch(() => {});
+let first = 'calendar';
+try { first = localStorage.getItem('settings.section') || first; } catch {}
+goTo(first);
 Promise.all([api.settings(), api.updateStatus(), api.calendar()]).then(([s, u, c]) => {
   settings = s;
   update = u;
   calendar = c;
   render();
-  api.takeSettingsSection().then(goTo).catch(() => {});
+  api.takeSettingsSection().then((section) => section && goTo(section)).catch(() => {});
 });
-setInterval(() => settings && renderCalendar(), 30_000);
+setInterval(() => settings && renderAccounts(), 30_000);

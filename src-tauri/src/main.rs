@@ -398,8 +398,8 @@ fn open_settings(app: &AppHandle, section: Option<&str>) -> tauri::Result<()> {
     WebviewWindowBuilder::new(app, SETTINGS, WebviewUrl::App("settings.html".into()))
         .additional_browser_args(BROWSER_ARGS)
         .on_navigation(|url| url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost"))
-        .title("Настройки · Задачи")
-        .inner_size(560.0, 660.0)
+        .title("Настройки · Simple Desk Widgets")
+        .inner_size(720.0, 560.0)
         .resizable(false)
         .maximizable(false)
         .theme(Some(tauri::Theme::Dark))
@@ -508,25 +508,40 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         None => "Новая задача".to_string(),
     };
     let add = MenuItem::with_id(app, "add", add_label, true, None::<&str>)?;
+    let focus = MenuItem::with_id(app, "focus", "Фокус: старт или пауза", true, None::<&str>)?;
+    let sync = MenuItem::with_id(app, "sync", "Обновить календарь", true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Показать виджеты", true, None::<&str>)?;
     let movable = CheckMenuItem::with_id(app, "movable", "Разрешить перемещение", true, false, None::<&str>)?;
     let reset = MenuItem::with_id(app, "reset", "Расставить по умолчанию", true, None::<&str>)?;
     let prefs = MenuItem::with_id(app, "settings", "Настройки…", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
+    let updates = MenuItem::with_id(app, "updates", "Проверить обновления", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&add, &show, &movable, &reset, &prefs, &sep, &quit])?;
+    let (s1, s2, s3) = (PredefinedMenuItem::separator(app)?, PredefinedMenuItem::separator(app)?, PredefinedMenuItem::separator(app)?);
+    let menu = Menu::with_items(
+        app,
+        &[&add, &focus, &sync, &s1, &show, &movable, &reset, &s2, &prefs, &updates, &s3, &quit],
+    )?;
     let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("Задачи")
+        .tooltip("Simple Desk Widgets")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "add" => toggle_quick(app, false),
+            "focus" => {
+                let _ = focus::focus_action(app.clone(), "toggle".into());
+            }
+            "sync" => calendar::calendar_refresh(),
             "show" => layout::place_all(app),
             // The check mark toggles itself on click; mirror its new state.
             "movable" => set_movable(app, movable.is_checked().unwrap_or(false)),
             "reset" => layout::reset(app),
             "settings" => {
                 let _ = open_settings(app, None);
+            }
+            "updates" => {
+                let _ = open_settings(app, Some("updates"));
+                let app = app.clone();
+                std::thread::spawn(move || updater::check(&app));
             }
             "quit" => {
                 app.state::<layout::Layout>().flush();

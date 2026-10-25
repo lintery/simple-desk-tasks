@@ -413,7 +413,7 @@ pub fn focus_state(focus: State<Focus>) -> Timer {
     focus.timer.lock().unwrap().clone()
 }
 
-/// `start`, `pause`, `skip` or `reset`. Skipping is the user's own doing, so it
+/// `start`, `pause`, `toggle`, `skip` or `reset`. Skipping is the user's own doing, so it
 /// isn't announced.
 #[tauri::command]
 pub fn focus_action(app: AppHandle, action: String) -> Result<Timer, String> {
@@ -424,6 +424,11 @@ pub fn focus_action(app: AppHandle, action: String) -> Result<Timer, String> {
         }
         "pause" => {
             t.pause(now);
+            true
+        }
+        // The tray's one item for both.
+        "toggle" => {
+            if t.running { t.pause(now) } else { t.start(now) }
             true
         }
         "skip" => {
@@ -462,7 +467,7 @@ fn tray_tip(t: &Timer, now: i64) -> String {
     let secs = (t.left(now) + 999) / 1000;
     let mmss = format!("{:02}:{:02}", secs / 60, secs % 60);
     match (t.phase, t.running) {
-        (Phase::Idle, _) => "Задачи".to_string(),
+        (Phase::Idle, _) => "Simple Desk Widgets".to_string(),
         (Phase::Focus, true) => format!("Фокус · {mmss}"),
         (Phase::Break | Phase::Long, true) => format!("Перерыв · {mmss}"),
         (_, false) => format!("Пауза · {mmss}"),

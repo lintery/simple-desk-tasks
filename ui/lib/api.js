@@ -47,11 +47,12 @@ export const api = {
   /** A folder from the standard Windows dialog, or null. */
   pickFolder: (start = null) => invoke('pick_folder', { start }),
   version: () => invoke('app_version'),
-  /** Meetings and sync state of the Mail.ru calendar. */
+  /** Meetings of all calendar accounts, and how each account is doing. */
   calendar: () => invoke('calendar_state'),
-  /** Checks the account; resolves to the calendars found (saved in the settings). */
-  calendarConnect: (email, password) => invoke('calendar_connect', { email, password }),
-  calendarDisconnect: () => invoke('calendar_disconnect'),
+  /** Checks and saves an account: { provider, login, secret, server, account? }
+   * (`account` reconnects that one); resolves to it with its calendars. */
+  calendarConnect: (request) => invoke('calendar_connect', { request }),
+  calendarDisconnect: (account) => invoke('calendar_disconnect', { account }),
   calendarRefresh: () => invoke('calendar_refresh'),
   updateStatus: () => invoke('update_status'),
   updateCheck: () => invoke('update_check'),
