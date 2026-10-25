@@ -10,6 +10,7 @@ use windows::{
     core::{w, HSTRING, PCWSTR},
     Win32::{
         Foundation::{ERROR_TIMEOUT, HWND, POINT},
+        System::Threading::{AttachThreadInput, GetCurrentThreadId},
         System::Com::{
             CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
         },
@@ -20,8 +21,10 @@ use windows::{
                 ShellExecuteW, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
             },
             WindowsAndMessaging::{
-                FindWindowW, GetAncestor, GetCursorPos, GetSystemMetrics, GetWindowLongPtrW, SetWindowLongPtrW,
-                WindowFromPoint, GA_ROOT, GWLP_HWNDPARENT, SM_SWAPBUTTON, SW_SHOWNORMAL,
+                BringWindowToTop, FindWindowW, GetAncestor, GetCursorPos, GetForegroundWindow, GetSystemMetrics,
+                GetWindowLongPtrW, GetWindowThreadProcessId, IsHungAppWindow, SetForegroundWindow, SetWindowLongPtrW,
+                WindowFromPoint,
+                GA_ROOT, GWLP_HWNDPARENT, SM_SWAPBUTTON, SW_SHOWNORMAL,
             },
         },
     },
@@ -161,6 +164,39 @@ pub fn pick_folder(owner: Option<isize>, start: Option<String>) -> Option<String
         let _ = tx.send(picked);
     });
     rx.recv().ok().flatten()
+}
+
+/// The window is the one in front (has the keyboard).
+pub fn is_foreground(win: &WebviewWindow) -> bool {
+    hwnd(win).is_some_and(|h| unsafe { GetForegroundWindow() } == h)
+}
+
+/// Puts the window in front with the keyboard. Windows may refuse a plain
+/// SetForegroundWindow (the focus-stealing lock, e.g. when the hotkey's moment
+/// has passed); joining the front window's input queue for the call lifts it
+/// without sending any keys. True if it's in front afterwards.
+pub fn bring_to_front(win: &WebviewWindow) -> bool {
+    let Some(h) = hwnd(win) else { return false };
+    // SAFETY: plain calls; the input queues are detached again right after.
+    unsafe {
+        if GetForegroundWindow() == h || SetForegroundWindow(h).as_bool() && GetForegroundWindow() == h {
+            return true;
+        }
+        let front = GetForegroundWindow();
+        // Not with a frozen app: the switch would wait on it, and so would we.
+        if !front.0.is_null() && IsHungAppWindow(front).as_bool() {
+            return false;
+        }
+        let theirs = GetWindowThreadProcessId(front, None);
+        let ours = GetCurrentThreadId();
+        let joined = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true).as_bool();
+        let _ = BringWindowToTop(h);
+        let _ = SetForegroundWindow(h);
+        if joined {
+            let _ = AttachThreadInput(ours, theirs, false);
+        }
+        GetForegroundWindow() == h
+    }
 }
 
 /// Waits for a WinRT operation (an HTTP request, a read), cancelling it after

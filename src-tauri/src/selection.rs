@@ -15,7 +15,7 @@
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Mutex,
+        mpsc, Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
@@ -59,6 +59,11 @@ const MAX_CHARS: usize = 500;
 /// these limits we don't touch the clipboard at all.
 const SAVE_BUDGET: Duration = Duration::from_millis(600);
 const SAVE_MAX_BYTES: usize = 64 * 1024 * 1024;
+/// How long the copy we sent is waited for before the popup opens without it.
+const COPY_WAIT: Duration = Duration::from_millis(250);
+/// How long the popup waits to read the copied text (the clipboard restore
+/// itself goes on longer, in the background).
+const READ_WAIT: Duration = Duration::from_millis(600);
 /// How long a late copy from a slow app is still expected.
 const LATE_WINDOW: Duration = Duration::from_millis(1500);
 
@@ -116,70 +121,101 @@ impl Check {
     }
 }
 
-/// Selected text of the foreground app, if any. Blocks for up to ~1 s, so
-/// call it off the main thread. `owner` is one of our windows (needed to
-/// restore the clipboard).
-pub fn capture(owner: HWND) -> Option<String> {
+/// Selected text of the foreground app, if any, or why there's none (for the
+/// hotkey log). Blocks for up to ~2 s (usually a few hundred ms), so call it
+/// off the main thread.
+/// `owner` is one of our windows (needed to restore the clipboard).
+pub fn capture(owner: HWND) -> Result<String, &'static str> {
     let fg = unsafe { GetForegroundWindow() };
     if fg.0.is_null() || is_ours(fg) || is_console(fg) {
-        return None;
+        return Err("no app to copy from");
     }
     let _serial = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if RESTORING.load(Ordering::SeqCst) || PENDING.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
-        return None; // an earlier copy is still unsettled: don't start another
+        return Err("previous copy unsettled"); // don't start another
     }
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let target = pid_of(fg);
     if !wait_modifiers_released(Duration::from_millis(800)) {
-        return None; // keys still held: a copy now would be Alt+Ctrl+Insert
+        return Err("keys held"); // a copy now would be Alt+Ctrl+Insert
     }
     if clipboard_owner_hung() {
-        return None; // reading its data would block (and hold the clipboard open)
+        return Err("clipboard owner hung"); // reading its data would block
     }
 
     // No copy unless the user's clipboard is safely saved.
-    let (saved, saved_seq) = with_clipboard(owner, Duration::from_millis(300), save_all).flatten()?;
+    let (saved, saved_seq) = with_clipboard(owner, Duration::from_millis(300), save_all).flatten().ok_or("clipboard not saved")?;
     // The window may have changed while we waited; never send keys elsewhere.
     let now_fg = unsafe { GetForegroundWindow() };
     if now_fg != fg || is_console(now_fg) {
-        return None;
+        return Err("app in front changed");
     }
     let before = unsafe { GetClipboardSequenceNumber() };
     if before != saved_seq {
-        return None; // something wrote the clipboard since we saved it: our copy is stale
+        return Err("clipboard changed meanwhile"); // our copy would be stale
     }
     send_copy();
-    let deadline = Instant::now() + Duration::from_millis(300);
+    // Apps answer a copy within tens of ms; nothing by now usually means
+    // nothing was selected (a slow app's late copy is still handled below).
+    let deadline = Instant::now() + COPY_WAIT;
     while unsafe { GetClipboardSequenceNumber() } == before {
         if Instant::now() > deadline {
             *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some(Pending { saved, generation });
             let owner = owner.0 as isize;
             thread::spawn(move || late_restore(owner, before, generation, target));
-            return None;
+            return Err("nothing copied");
         }
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(5));
     }
     thread::sleep(Duration::from_millis(30)); // let the app finish writing all formats
 
     // Read the selection and put the user's clipboard back in one session:
-    // nothing can slip in between.
-    let mut slot = Some(saved);
-    let text = with_clipboard(owner, Duration::from_millis(2500), |_| {
-        let text = read_selection(());
-        restore_all(slot.take().expect("one session"));
-        text
-    })
-    .flatten();
-    if let Some(saved) = slot {
-        // Clipboard stayed busy: restore later, but only over that same copy.
-        restore_later(owner, saved, Check::Unchanged(unsafe { GetClipboardSequenceNumber() }));
-    }
+    // nothing can slip in between. A clipboard manager may hold the clipboard
+    // just after a copy, so the session runs on its own thread with the full
+    // patience, while the popup waits for the text only READ_WAIT; a later
+    // read still restores the clipboard, its text is just dropped. New
+    // captures wait until it's done (RESTORING).
+    // Once the popup has opened without it, the user may copy something new:
+    // from then on the session restores only over our own copy, unchanged.
+    RESTORING.store(true, Ordering::SeqCst);
+    let copied = unsafe { GetClipboardSequenceNumber() };
+    let gave_up = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = mpsc::channel();
+    let owner_raw = owner.0 as isize;
+    let late = gave_up.clone();
+    thread::spawn(move || {
+        let owner = HWND(owner_raw as *mut _);
+        let mut slot = Some(saved);
+        let text = with_clipboard(owner, Duration::from_millis(2500), |_| {
+            let text = read_selection(());
+            let saved = slot.take().expect("one session");
+            if !late.load(Ordering::SeqCst) || Check::Unchanged(copied).holds() {
+                restore_all(saved);
+            } // else: the user's newer copy stays; ours is dropped
+            text
+        })
+        .flatten();
+        let _ = tx.send(text);
+        match slot {
+            // Clipboard stayed busy: restore later, but only over that same copy
+            // (restore_later clears RESTORING when it's done).
+            Some(saved) => restore_later(owner, saved, Check::Unchanged(unsafe { GetClipboardSequenceNumber() })),
+            None => RESTORING.store(false, Ordering::SeqCst),
+        }
+    });
+    let text = match rx.recv_timeout(READ_WAIT) {
+        Ok(text) => text,
+        Err(_) => {
+            gave_up.store(true, Ordering::SeqCst);
+            return Err("clipboard busy");
+        }
+    };
 
-    let text = text?.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = text.ok_or("copy not readable")?.split_whitespace().collect::<Vec<_>>().join(" ");
     if text.is_empty() {
-        return None;
+        return Err("empty selection");
     }
-    Some(text.chars().take(MAX_CHARS).collect())
+    Ok(text.chars().take(MAX_CHARS).collect())
 }
 
 /// Settles the pending clipboard: if the target app's copy lands within the

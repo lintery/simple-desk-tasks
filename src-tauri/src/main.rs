@@ -16,9 +16,12 @@ mod sounds;
 mod store;
 mod updater;
 
-use std::sync::{
-    atomic::{AtomicBool, AtomicI64, Ordering},
-    OnceLock,
+use std::{
+    sync::{
+        atomic::{AtomicBool, AtomicI64, Ordering},
+        OnceLock,
+    },
+    time::Instant,
 };
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -246,8 +249,18 @@ fn create_quick(app: &AppHandle) -> tauri::Result<()> {
 /// selected in the app in front is copied into it.
 fn toggle_quick(app: &AppHandle, grab_selection: bool) {
     let Some(win) = app.get_webview_window(QUICK) else { return };
+    let pressed = Instant::now();
     if win.is_visible().unwrap_or(false) {
-        let _ = win.hide();
+        // Open but not in front (Windows didn't let it take the keyboard):
+        // the press is for it, not against it.
+        if desktop::is_foreground(&win) {
+            let _ = win.hide();
+        } else {
+            let front = desktop::bring_to_front(&win);
+            if grab_selection {
+                hotkey_log(app, format!("popup was open behind; in front now: {front}"));
+            }
+        }
         return;
     }
     if store::now_ms() - QUICK_AUTO_HIDDEN_AT.load(Ordering::Relaxed) < 300 {
@@ -258,34 +271,70 @@ fn toggle_quick(app: &AppHandle, grab_selection: bool) {
         // Capturing waits for the hotkey's keys to be released: off the main thread.
         Some(owner) => {
             if CAPTURING.swap(true, Ordering::SeqCst) {
-                return; // a repeat press while the previous one is still copying
+                hotkey_log(app, "ignored: the previous press is still copying".into());
+                return;
             }
             let app = app.clone();
             std::thread::spawn(move || {
-                // Released even if capturing bails out early.
+                // Released even if capturing bails out early — and only once the
+                // popup is up, so a quick second press toggles it, not a new copy.
                 struct Done;
                 impl Drop for Done {
                     fn drop(&mut self) {
                         CAPTURING.store(false, Ordering::SeqCst);
                     }
                 }
-                let text = {
-                    let _done = Done;
-                    selection::capture(desktop::hwnd_from(owner))
+                let _done = Done;
+                let captured = selection::capture(desktop::hwnd_from(owner));
+                let copy_ms = pressed.elapsed().as_millis();
+                let what = match &captured {
+                    Ok(text) => format!("{} chars", text.chars().count()),
+                    Err(why) => why.to_string(),
                 };
-                show_quick(&app, text);
+                let front = show_quick(&app, captured.ok());
+                hotkey_log(&app, format!("copy {copy_ms} ms ({what}), shown at {} ms, in front: {front}", pressed.elapsed().as_millis()));
             });
         }
-        None => show_quick(app, None),
+        None => {
+            show_quick(app, None);
+        }
     }
 }
 
-fn show_quick(app: &AppHandle, text: Option<String>) {
-    let Some(win) = app.get_webview_window(QUICK) else { return };
+/// Shows the popup with the keyboard; false if Windows kept it from the front.
+fn show_quick(app: &AppHandle, text: Option<String>) -> bool {
+    let Some(win) = app.get_webview_window(QUICK) else { return false };
     layout::center_on_cursor_monitor(app, &win, QUICK_SIZE.0, QUICK_SIZE.1);
     let _ = win.show();
     let _ = win.set_focus();
+    // From another thread show/focus are only queued to the main thread; a
+    // getter waits its turn in the same queue, so the window is up after it.
+    let _ = win.is_visible();
+    let front = desktop::bring_to_front(&win);
     let _ = win.emit_to(QUICK, "quick-open", text);
+    front
+}
+
+/// One line per hotkey press in hotkey.log (local app data): how long the
+/// copy took and whether the popup got the keyboard, to see what a slow or
+/// missed press was about (never the copied text). Written off the calling
+/// thread; past 256 KB it starts over.
+fn hotkey_log(app: &AppHandle, line: String) {
+    let Ok(dir) = app.path().app_local_data_dir() else { return };
+    let line = format!("{} {line}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
+    std::thread::spawn(move || {
+        use std::io::Write;
+        static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
+        let path = dir.join("hotkey.log");
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() > 256 * 1024) {
+            let _ = std::fs::rename(&path, dir.join("hotkey.old.log"));
+        }
+        let _ = std::fs::create_dir_all(&dir);
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = f.write_all(line.as_bytes());
+        }
+    });
 }
 
 /// Opens the settings window (or brings it forward), optionally at a section.
