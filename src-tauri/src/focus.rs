@@ -189,11 +189,23 @@ impl Timer {
         true
     }
 
-    /// Counts `spent` and starts the break that follows, from `from`.
+    /// Counts `spent` and starts the break that follows, from `from`. A session
+    /// that ran past midnight is split between the two days.
     fn finish_focus(&mut self, from: i64, spent: i64, counts: bool) -> Done {
-        self.today += spent.max(0);
+        let spent = spent.max(0);
+        let (before, after) = match midnight_before(from) {
+            Some((midnight, yesterday)) if from - spent < midnight => {
+                let after = from - midnight;
+                (Some((yesterday, spent - after)), after)
+            }
+            _ => (None, spent),
+        };
+        self.today += after;
         if !self.day.is_empty() {
-            *self.history.entry(self.day.clone()).or_default() += spent.max(0);
+            *self.history.entry(self.day.clone()).or_default() += after;
+            if let Some((day, ms)) = before {
+                *self.history.entry(day).or_default() += ms;
+            }
             while self.history.len() > HISTORY_DAYS {
                 self.history.pop_first();
             }
@@ -275,6 +287,15 @@ fn clean_mix(mix: Vec<MixItem>) -> Vec<MixItem> {
 pub struct Focus {
     path: PathBuf,
     timer: Mutex<Timer>,
+}
+
+/// The local midnight that began the day of `at` (unix ms), and the date of
+/// the day before it.
+fn midnight_before(at: i64) -> Option<(i64, String)> {
+    use chrono::{Local, TimeZone};
+    let day = Local.timestamp_millis_opt(at).single()?.date_naive();
+    let midnight = Local.from_local_datetime(&day.and_hms_opt(0, 0, 0)?).earliest()?.timestamp_millis();
+    Some((midnight, day.pred_opt()?.format("%Y-%m-%d").to_string()))
 }
 
 fn today() -> String {
@@ -597,6 +618,20 @@ mod tests {
         t.skip(MIN);
         assert_eq!(t.history.len(), HISTORY_DAYS);
         assert_eq!(t.history.get("2026-10-25"), Some(&MIN));
+    }
+
+    #[test]
+    fn a_session_past_midnight_is_split_between_the_days() {
+        let noon = chrono::DateTime::parse_from_rfc3339("2026-10-25T12:00:00Z").unwrap().timestamp_millis();
+        let (midnight, yesterday) = midnight_before(noon).unwrap();
+        let today = chrono::DateTime::from_timestamp_millis(noon).unwrap().with_timezone(&chrono::Local).format("%Y-%m-%d").to_string();
+        let mut t = timer("pomodoro");
+        t.roll_day(&today);
+        t.start(midnight - 10 * MIN); // 25 min: 10 before midnight, 15 after
+        t.tick(t.ends_at);
+        assert_eq!(t.history.get(&yesterday), Some(&(10 * MIN)));
+        assert_eq!(t.history.get(&today), Some(&(15 * MIN)));
+        assert_eq!(t.today, 15 * MIN);
     }
 
     #[test]

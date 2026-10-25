@@ -276,6 +276,11 @@ export function parse(text, now = new Date(), anchor = null) {
     }
   }
   if (time && !due) due = c.today;
+  // «каждый пн 27.10» with the 27th a Tuesday: the series starts on the first
+  // Monday from that date, not on an off-rule day.
+  if (repeat && explicitDate && (repeat.kind === 'weekdays' || (repeat.kind === 'weekly' && repeat.days?.length))) {
+    due = firstOccurrence(repeat, due);
+  }
   if (repeat) repeat = anchorRule(repeat, due);
   if (due === c.today && time && time <= c.time && !explicitDate) {
     // The time has passed today: the next occurrence (or tomorrow).

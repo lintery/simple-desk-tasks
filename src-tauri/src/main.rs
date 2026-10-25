@@ -4,6 +4,7 @@ mod backdrop;
 mod backup;
 mod calendar;
 mod desktop;
+mod errors;
 mod focus;
 mod ical;
 mod layout;

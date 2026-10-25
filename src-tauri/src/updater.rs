@@ -8,7 +8,7 @@
 //! start that finds the marker (and the trial process gone) puts the old exe
 //! back and skips that version.
 
-use crate::{desktop::APP_ID, net::get};
+use crate::{desktop::APP_ID, errors, net::get};
 use minisign_verify::{PublicKey, Signature};
 use serde::Serialize;
 use std::{
@@ -112,25 +112,30 @@ fn newer(a: &str, b: &str) -> bool {
     false
 }
 
+// What the settings window says when an update can't be had.
+const INCOMPLETE: &str = "В новом релизе не хватает файлов — подожду следующего";
+const BAD_SIGNATURE: &str = "Подпись обновления не сходится — оно не установлено";
+const NOT_INSTALLED: &str = "Обновление не установлено";
+
 /// Latest release: its version and the download links of the exe and its signature.
 fn latest() -> Result<(String, String, String), String> {
-    let json: serde_json::Value = serde_json::from_slice(&get(RELEASES, API_TIMEOUT)?).map_err(|e| e.to_string())?;
-    let tag = json["tag_name"].as_str().ok_or("в релизе нет версии")?.trim_start_matches('v').to_string();
+    let json: serde_json::Value = serde_json::from_slice(&get(RELEASES, API_TIMEOUT, "GitHub")?).map_err(|_| "GitHub ответил непонятно — попробую позже")?;
+    let tag = json["tag_name"].as_str().ok_or(INCOMPLETE)?.trim_start_matches('v').to_string();
     let link = |name: &str| {
         json["assets"].as_array().into_iter().flatten().find(|a| a["name"] == name).and_then(|a| a["browser_download_url"].as_str())
             .map(str::to_string)
     };
-    let exe = link(ASSET).ok_or("в релизе нет DeskTasks.exe")?;
-    let sig = link(&format!("{ASSET}.minisig")).ok_or("в релизе нет подписи")?;
+    let exe = link(ASSET).ok_or(INCOMPLETE)?;
+    let sig = link(&format!("{ASSET}.minisig")).ok_or(INCOMPLETE)?;
     Ok((tag, exe, sig))
 }
 
 /// The exe is what the release key signed; returns the signature's trusted
 /// comment ("file:DeskTasks.exe version:1.2.0").
 fn verify(exe: &[u8], sig: &[u8]) -> Result<String, String> {
-    let key = PublicKey::from_base64(PUBLIC_KEY.trim()).map_err(|e| e.to_string())?;
-    let sig = Signature::decode(std::str::from_utf8(sig).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    key.verify(exe, &sig, false).map_err(|_| "подпись обновления не сходится".to_string())?;
+    let key = PublicKey::from_base64(PUBLIC_KEY.trim()).map_err(|_| BAD_SIGNATURE)?;
+    let sig = std::str::from_utf8(sig).ok().and_then(|s| Signature::decode(s).ok()).ok_or(BAD_SIGNATURE)?;
+    key.verify(exe, &sig, false).map_err(|_| BAD_SIGNATURE)?;
     Ok(sig.trusted_comment().to_string())
 }
 
@@ -172,13 +177,13 @@ pub fn check(app: &AppHandle) -> Status {
             return Ok(None);
         }
         if skipped(&exe).as_deref() == Some(tag.as_str()) {
-            return Err(format!("версия {tag} не запустилась и была откачена, ждём следующую"));
+            return Err(format!("Версия {tag} не запустилась и была откачена — подожду следующую"));
         }
-        let (bytes, sig) = (get(&exe_url, DOWNLOAD_TIMEOUT)?, get(&sig_url, API_TIMEOUT)?);
+        let (bytes, sig) = (get(&exe_url, DOWNLOAD_TIMEOUT, "GitHub")?, get(&sig_url, API_TIMEOUT, "GitHub")?);
         let comment = verify(&bytes, &sig)?;
-        let version = signed_version(&comment).ok_or("в подписи обновления нет версии")?.to_string();
+        let version = signed_version(&comment).ok_or(BAD_SIGNATURE)?.to_string();
         if version != tag || !newer(&version, &current_version()) {
-            return Err(format!("подписана версия {version}, а релиз — {tag}"));
+            return Err(BAD_SIGNATURE.into());
         }
         let file = exe.with_file_name("DeskTasks.new.exe");
         let write = || -> std::io::Result<()> {
@@ -186,7 +191,7 @@ pub fn check(app: &AppHandle) -> Status {
             f.write_all(&bytes)?;
             f.sync_all()
         };
-        write().map_err(|e| e.to_string())?;
+        write().map_err(|e| errors::file(&e, "Обновление не скачалось"))?;
         *READY.lock().unwrap() = Some(Ready { version: version.clone(), file, sig });
         Ok(Some(version))
     })();
@@ -200,7 +205,7 @@ pub fn check(app: &AppHandle) -> Status {
 /// Puts the downloaded update in place and restarts into it. A failed try
 /// drops the download, so the next check fetches it afresh.
 pub fn install(app: &AppHandle) -> Result<(), String> {
-    let ready = READY.lock().unwrap().take().ok_or("нет скачанного обновления")?;
+    let ready = READY.lock().unwrap().take().ok_or("Обновление ещё не скачано")?;
     let result = swap_and_restart(app, &ready);
     if let Err(e) = &result {
         let _ = fs::remove_file(&ready.file);
@@ -210,28 +215,28 @@ pub fn install(app: &AppHandle) -> Result<(), String> {
 }
 
 fn swap_and_restart(app: &AppHandle, ready: &Ready) -> Result<(), String> {
-    let exe = installed_exe().ok_or("обновляется только установленная копия")?;
+    let exe = installed_exe().ok_or("Обновляется только установленная копия")?;
     // The file sat on disk since the download: check it once more.
-    let bytes = fs::read(&ready.file).map_err(|e| e.to_string())?;
+    let bytes = fs::read(&ready.file).map_err(|e| errors::file(&e, NOT_INSTALLED))?;
     verify(&bytes, &ready.sig)?;
     let old = exe.with_file_name("DeskTasks.old.exe");
     let trial = exe.with_file_name(TRIAL_FILE);
     let _ = fs::remove_file(&old);
-    fs::rename(&exe, &old).map_err(|e| e.to_string())?;
+    fs::rename(&exe, &old).map_err(|e| errors::file(&e, NOT_INSTALLED))?;
     // Back to the running version; if even that fails, say so — the app wouldn't start next time.
     let undo = |why: String| -> String {
         let _ = fs::remove_file(&trial);
         match fs::rename(&old, &exe) {
             Ok(()) => why,
-            Err(e) => format!("{why}; не удалось вернуть DeskTasks.exe ({e}) — он лежит рядом как DeskTasks.old.exe"),
+            Err(_) => format!("{why}. Прежнюю версию не удалось вернуть на место — запустите DeskTasks.old.exe из папки программы"),
         }
     };
     if let Err(e) = fs::rename(&ready.file, &exe) {
-        return Err(undo(e.to_string()));
+        return Err(undo(errors::file(&e, NOT_INSTALLED)));
     }
     if let Err(e) = Trial::new(&ready.version).save(&trial) {
         let _ = fs::rename(&exe, &ready.file);
-        return Err(undo(e.to_string()));
+        return Err(undo(errors::file(&e, NOT_INSTALLED)));
     }
     app.state::<crate::layout::Layout>().flush();
     app.state::<crate::store::Store>().flush_backup();
@@ -242,7 +247,7 @@ fn swap_and_restart(app: &AppHandle, ready: &Ready) -> Result<(), String> {
         }
         Err(e) => {
             let _ = fs::rename(&exe, &ready.file);
-            return Err(undo(e.to_string()));
+            return Err(undo(errors::file(&e, NOT_INSTALLED)));
         }
     }
     app.exit(0);

@@ -12,6 +12,7 @@ use std::{
 use tauri::{AppHandle, Emitter};
 
 pub const DEFAULT_BACKUP_DIR: &str = r"D:\backups\simple-desk-tasks";
+const NOT_SAVED: &str = "Настройки не сохранены";
 /// Calendars of the account that aren't meetings and are left out: Mail.ru's
 /// holidays and «what happened on this day» feed.
 const HIDDEN_CALENDARS: [&str; 1] = ["события в этот день"];
@@ -181,7 +182,7 @@ pub fn get() -> Settings {
 
 /// Changes settings from Rust (the calendar connecting), saves and tells everyone.
 pub fn update(app: &AppHandle, f: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
-    let state = STATE.get().ok_or("settings not loaded")?;
+    let state = STATE.get().ok_or(NOT_SAVED)?;
     let next = {
         let mut current = state.value.write().unwrap();
         let mut next = current.clone();
@@ -198,17 +199,17 @@ pub fn update(app: &AppHandle, f: impl FnOnce(&mut Settings)) -> Result<Settings
 
 fn save(state: &State, value: &Settings) -> Result<(), String> {
     if state.locked {
-        return Err("settings.json не читался при запуске — перезапустите приложение, чтобы сохранять настройки".into());
+        return Err("Настройки не сохраняются: при запуске файл настроек не открылся — перезапустите приложение".into());
     }
-    let json = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(value).map_err(|_| NOT_SAVED.to_string())?;
     let tmp = state.path.with_extension("json.tmp");
     let write = || -> std::io::Result<()> {
         let mut f = fs::File::create(&tmp)?;
         f.write_all(json.as_bytes())?;
         f.sync_all()
     };
-    write().map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &state.path).map_err(|e| e.to_string())
+    write().map_err(|e| crate::errors::file(&e, NOT_SAVED))?;
+    fs::rename(&tmp, &state.path).map_err(|e| crate::errors::file(&e, NOT_SAVED))
 }
 
 /// What the settings window sends, applied over `current`. The calendar
@@ -238,7 +239,7 @@ pub fn get_settings() -> Settings {
 /// length; everyone else reads them when needed or on `settings-changed`.
 #[tauri::command]
 pub fn set_settings(app: AppHandle, settings: Settings) -> Result<Settings, String> {
-    let state = STATE.get().ok_or("settings not loaded")?;
+    let state = STATE.get().ok_or(NOT_SAVED)?;
     let next = {
         let mut current = state.value.write().unwrap();
         let next = merge(&current, settings);

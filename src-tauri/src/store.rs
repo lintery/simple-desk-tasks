@@ -17,7 +17,15 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::backup::{self, Backup};
+use crate::{
+    backup::{self, Backup},
+    errors,
+};
+
+// What the widgets say when a change can't be made.
+const NOT_SAVED: &str = "Задачи не сохранены";
+const GONE: &str = "Этой задачи уже нет — её удалили или изменили в другом окне";
+const NOT_CHANGED: &str = "Не получилось изменить задачу";
 
 /// Completed tasks are kept this long (for "done today" stats), then dropped.
 const KEEP_DONE_MS: i64 = 14 * 24 * 60 * 60 * 1000;
@@ -49,10 +57,16 @@ pub struct Task {
     pub notified: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Default)]
 struct FileData {
-    #[serde(default)]
     tasks: Vec<Task>,
+}
+
+/// The file as read: each task kept as raw JSON until it's checked on its own.
+#[derive(Deserialize)]
+struct RawFile {
+    #[serde(default)]
+    tasks: Vec<Value>,
 }
 
 pub struct Store {
@@ -86,24 +100,57 @@ fn read_file(path: &Path, attempts: u32) -> io::Result<Option<Vec<u8>>> {
     Err(last.expect("at least one attempt"))
 }
 
-fn parse_tasks(bytes: &[u8]) -> serde_json::Result<Vec<Task>> {
+/// The tasks of a file, and how many of its records had to be mended or
+/// dropped. One bad record (a hand edit, an old version) costs only itself:
+/// a missing id or creation time is filled in; one without a title is left out.
+fn parse_tasks(bytes: &[u8]) -> serde_json::Result<(Vec<Task>, usize)> {
     let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
-    let data: FileData = serde_json::from_slice(body)?;
+    let data: RawFile = serde_json::from_slice(body)?;
     let cutoff = now_ms() - KEEP_DONE_MS;
-    Ok(data.tasks.into_iter().filter(|t| !t.done || t.done_at.unwrap_or(0) >= cutoff).collect())
+    let mut mended = 0;
+    let mut tasks = Vec::with_capacity(data.tasks.len());
+    for (i, raw) in data.tasks.into_iter().enumerate() {
+        if let Ok(task) = serde_json::from_value::<Task>(raw.clone()) {
+            tasks.push(task);
+            continue;
+        }
+        mended += 1;
+        let Value::Object(mut map) = raw else { continue };
+        if !map.get("title").and_then(Value::as_str).is_some_and(|t| !t.trim().is_empty()) {
+            continue;
+        }
+        map.entry("id").or_insert_with(|| Value::String(format!("{:x}r{i:04x}", now_ms())));
+        map.entry("created").or_insert_with(|| Value::from(now_ms()));
+        if let Ok(task) = serde_json::from_value::<Task>(Value::Object(map)) {
+            tasks.push(task);
+        }
+    }
+    tasks.retain(|t| !t.done || t.done_at.unwrap_or(0) >= cutoff);
+    Ok((tasks, mended))
 }
 
 fn to_json(tasks: &[Task]) -> Result<String, String> {
-    serde_json::to_string_pretty(&FileData { tasks: tasks.to_vec() }).map_err(|e| e.to_string())
+    serde_json::to_string_pretty(&FileData { tasks: tasks.to_vec() }).map_err(|_| "Задачи не сохранены: не получилось их записать".to_string())
 }
 
 fn is_missing(path: &Path) -> bool {
     matches!(fs::metadata(path), Err(e) if e.kind() == io::ErrorKind::NotFound)
 }
 
+/// Written next to tasks.json once tasks have been saved here.
+const SAVED_MARKER: &str = "saved";
+
+/// The app has been used here: tasks were saved, or the user set something up
+/// (each of those files is written only by a user's action).
+fn ran_before(tasks: &Path) -> bool {
+    let dir = tasks.parent().unwrap_or(Path::new("."));
+    [SAVED_MARKER, "layout.json", "focus.json", "settings.json"].iter().any(|f| dir.join(f).exists())
+}
+
 /// What the store starts from.
 enum Loaded {
-    File(Vec<Task>),
+    /// tasks.json, and whether bad records had to be mended (then it's saved back).
+    File(Vec<Task>, bool),
     Restored(PathBuf, Vec<Task>),
     Empty,
 }
@@ -112,15 +159,22 @@ enum Loaded {
 /// (deleted, or a broken one set aside by `read_tasks`). Errors while a snapshot
 /// can't be read: better to wait than to start from an older copy or from nothing.
 fn load_or_restore(path: &Path, attempts: u32) -> Result<Loaded, String> {
-    let tasks = read_tasks(path, attempts)?;
+    let (tasks, mended) = read_tasks(path, attempts)?;
     if !is_missing(path) {
-        return Ok(Loaded::File(tasks));
+        return Ok(Loaded::File(tasks, mended));
     }
-    let unreadable = |e: io::Error| format!("tasks.json нет, а бэкап на D: не читается: {e}");
-    for snapshot in backup::snapshots().map_err(unreadable)? {
+    let unreadable = |e: io::Error| errors::file(&e, "Файла задач нет, а бэкап не читается");
+    let snapshots = match backup::snapshots() {
+        Ok(s) => s,
+        // A first start has nothing to restore: an unready backup drive (a
+        // card reader, a locked or network disk) mustn't keep it from saving.
+        Err(_) if !ran_before(path) => return Ok(Loaded::Empty),
+        Err(e) => return Err(unreadable(e)),
+    };
+    for snapshot in snapshots {
         match read_file(&snapshot, 3) {
             Ok(Some(bytes)) => {
-                if let Ok(tasks) = parse_tasks(&bytes) {
+                if let Ok((tasks, _)) = parse_tasks(&bytes) {
                     return Ok(Loaded::Restored(snapshot, tasks));
                 }
             }
@@ -131,24 +185,36 @@ fn load_or_restore(path: &Path, attempts: u32) -> Result<Loaded, String> {
     Ok(Loaded::Empty)
 }
 
-/// Tasks from disk, or why they can't be loaded (then nothing may be saved).
-fn read_tasks(path: &Path, attempts: u32) -> Result<Vec<Task>, String> {
+/// Tasks from disk and whether any records were mended, or why they can't
+/// be loaded (then nothing may be saved).
+fn read_tasks(path: &Path, attempts: u32) -> Result<(Vec<Task>, bool), String> {
     let bytes = match read_file(path, attempts) {
-        Ok(None) => return Ok(Vec::new()),
+        Ok(None) => return Ok((Vec::new(), false)),
         Ok(Some(b)) => b,
-        Err(e) => return Err(format!("tasks.json не открывается: {e}")),
+        Err(e) => return Err(errors::file(&e, "Файл задач не открывается")),
     };
     match parse_tasks(&bytes) {
-        Ok(tasks) => Ok(tasks),
+        Ok((tasks, 0)) => Ok((tasks, false)),
+        Ok((tasks, mended)) => {
+            // The file as it was is kept aside; the mended list is saved over it
+            // right away (see adopt), so this happens once.
+            let copy = path.with_extension(format!("broken-{}.json", now_ms()));
+            let _ = fs::write(&copy, &bytes);
+            eprintln!("tasks.json: {mended} record(s) mended or dropped, original kept as {copy:?}");
+            Ok((tasks, true))
+        }
         Err(e) => {
             // Keep the broken file instead of silently overwriting it.
             let backup = path.with_extension(format!("broken-{}.json", now_ms()));
             match fs::rename(path, &backup) {
                 Ok(()) => {
                     eprintln!("tasks.json is unreadable ({e}), moved to {backup:?}");
-                    Ok(Vec::new())
+                    Ok((Vec::new(), false))
                 }
-                Err(re) => Err(format!("tasks.json повреждён ({e}) и не переименовывается: {re}")),
+                Err(re) => {
+                    eprintln!("tasks.json is unreadable ({e}) and stays in place: {re}");
+                    Err(errors::file(&re, "Файл задач повреждён, а отложить его в сторону не получается"))
+                }
             }
         }
     }
@@ -175,9 +241,14 @@ impl Store {
     /// is enabled.
     fn adopt(&self, tasks: &mut Vec<Task>, loaded: Loaded) {
         match loaded {
-            Loaded::File(loaded) => {
-                // Today gets a snapshot even if nothing changes.
-                if let Ok(json) = to_json(&loaded) {
+            Loaded::File(loaded, mended) => {
+                self.mark_used(); // a readable tasks.json: used here (an upgrade has no marker yet)
+                if mended {
+                    if let Err(e) = self.save(&loaded) {
+                        eprintln!("mended tasks not saved yet: {e}");
+                    }
+                } else if let Ok(json) = to_json(&loaded) {
+                    // Today gets a snapshot even if nothing changes.
                     self.backup.push_initial(json);
                 }
                 *tasks = loaded;
@@ -194,6 +265,14 @@ impl Store {
         }
     }
 
+    /// Leaves the marker that tasks have been kept here (see ran_before).
+    fn mark_used(&self) {
+        let marker = self.path.with_file_name(SAVED_MARKER);
+        if !marker.exists() {
+            let _ = fs::write(marker, b"");
+        }
+    }
+
     /// Waits briefly for the backup drive to get the latest state (on quit).
     pub fn flush_backup(&self) {
         self.backup.flush(Duration::from_secs(3));
@@ -201,16 +280,17 @@ impl Store {
 
     pub fn save(&self, tasks: &[Task]) -> Result<(), String> {
         if let Some(e) = self.error.lock().unwrap().as_ref() {
-            return Err(format!("Не сохранено: {e}"));
+            return Err(format!("Не сохранено. {e}"));
         }
         let json = to_json(tasks)?;
         let tmp = self.path.with_extension("json.tmp");
         {
-            let mut f = fs::File::create(&tmp).map_err(|e| e.to_string())?;
-            f.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
-            f.sync_all().map_err(|e| e.to_string())?; // survive a power cut
+            let unsaved = |e: io::Error| errors::file(&e, NOT_SAVED);
+            let mut f = fs::File::create(&tmp).map_err(unsaved)?;
+            f.write_all(json.as_bytes()).map_err(unsaved)?;
+            f.sync_all().map_err(unsaved)?; // survive a power cut
         }
-        let mut last = String::new();
+        let mut last = None;
         for i in 0..5 {
             if i > 0 {
                 thread::sleep(Duration::from_millis(100));
@@ -218,12 +298,13 @@ impl Store {
             match fs::rename(&tmp, &self.path) {
                 Ok(()) => {
                     self.backup.push(json);
+                    self.mark_used();
                     return Ok(());
                 }
-                Err(e) => last = e.to_string(), // file briefly held by AV/indexer
+                Err(e) => last = Some(e), // file briefly held by AV/indexer
             }
         }
-        Err(format!("Не сохранено: {last}"))
+        Err(last.map_or_else(|| NOT_SAVED.to_string(), |e| errors::file(&e, NOT_SAVED)))
     }
 
     fn next_id(&self) -> String {
@@ -244,14 +325,14 @@ fn opt_string(v: &Value, check: fn(&str) -> bool, field: &str) -> Result<Option<
     match v {
         Value::Null => Ok(None),
         Value::String(s) if check(s) => Ok(Some(s.clone())),
-        _ => Err(format!("invalid {field}: {v}")),
+        _ => Err(if field == "time" { "Не понял время" } else { "Не понял дату" }.to_string()),
     }
 }
 
 fn clean_title(s: &str) -> Result<String, String> {
     let t = s.trim();
     if t.is_empty() {
-        return Err("empty title".into());
+        return Err("Задача пустая — напишите хоть слово".into());
     }
     Ok(t.chars().take(500).collect())
 }
@@ -352,25 +433,25 @@ pub fn update_task(
     patch: Map<String, Value>,
 ) -> Result<(), String> {
     mutate(&app, &store, |tasks| {
-        let task = tasks.iter_mut().find(|t| t.id == id).ok_or("task not found")?;
+        let task = tasks.iter_mut().find(|t| t.id == id).ok_or(GONE)?;
         let mut next = task.clone();
         for (key, v) in &patch {
             match key.as_str() {
-                "title" => next.title = clean_title(v.as_str().ok_or("invalid title")?)?,
+                "title" => next.title = clean_title(v.as_str().ok_or(NOT_CHANGED)?)?,
                 "due" => next.due = opt_string(v, valid_date, "due")?,
                 "time" => next.time = opt_string(v, valid_time, "time")?,
                 "repeat" => next.repeat = Some(v.clone()),
                 "order" => {
                     next.order = match v {
                         Value::Null => None,
-                        _ => Some(v.as_f64().filter(|o| o.is_finite()).ok_or("invalid order")?),
+                        _ => Some(v.as_f64().filter(|o| o.is_finite()).ok_or(NOT_CHANGED)?),
                     }
                 }
                 "done" => {
-                    next.done = v.as_bool().ok_or("invalid done")?;
+                    next.done = v.as_bool().ok_or(NOT_CHANGED)?;
                     next.done_at = if next.done { Some(now_ms()) } else { None };
                 }
-                other => return Err(format!("unknown field {other}")),
+                _ => return Err(NOT_CHANGED.into()),
             }
         }
         // `notified` is left alone: it names the exact "<due> <time>" already
@@ -386,7 +467,7 @@ pub fn update_task(
 #[tauri::command]
 pub fn delete_task(app: AppHandle, store: State<Store>, id: String) -> Result<Task, String> {
     mutate(&app, &store, |tasks| {
-        let pos = tasks.iter().position(|t| t.id == id).ok_or("task not found")?;
+        let pos = tasks.iter().position(|t| t.id == id).ok_or(GONE)?;
         Ok(tasks.remove(pos))
     })
 }
@@ -401,9 +482,30 @@ pub fn restore_task(app: AppHandle, store: State<Store>, task: Task) -> Result<(
     normalize(&mut task);
     mutate(&app, &store, |tasks| {
         if tasks.iter().any(|t| t.id == task.id) {
-            return Err("task already exists".into());
+            return Ok(()); // already back (a double undo)
         }
         tasks.push(task);
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_bad_record_costs_only_itself() {
+        let file = br#"{"tasks":[
+            {"id":"a","title":"ok","created":1},
+            {"title":"no id or created"},
+            {"id":"c","created":3},
+            "junk"
+        ]}"#;
+        let (tasks, mended) = parse_tasks(file).unwrap();
+        let titles: Vec<&str> = tasks.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles, ["ok", "no id or created"]);
+        assert_eq!(mended, 3);
+        assert!(!tasks[1].id.is_empty());
+        assert!(parse_tasks(b"not json").is_err());
+    }
 }

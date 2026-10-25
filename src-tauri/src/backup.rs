@@ -138,7 +138,7 @@ impl Worker {
                 if !self.failing && self.toasts {
                     let _ = Toast::new(APP_ID)
                         .title("Бэкап задач не записался")
-                        .text1(&format!("{}: {e}", dir.display()))
+                        .text1(&crate::errors::file(&e, &dir.display().to_string()))
                         .show();
                 }
                 self.failing = true;

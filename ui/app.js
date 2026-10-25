@@ -392,14 +392,28 @@ function remove(id) {
   })));
 }
 
-/** Moves a task to `due`; a time that has already passed today is dropped. */
+/** Moves a task to `due`; a time that has already passed today is dropped.
+ * «Без срока» (`null`) also drops a time and a repeat: then it can be undone. */
 function setDue(id, due) {
   const t = find(id);
   if (!t) return;
   const c = clock();
   const patch = { due };
   if (due === c.today && t.time && t.time <= c.time) patch.time = null;
-  save(api.update(id, patch));
+  const loses = due === null && t.due && (t.repeat || t.time);
+  save(api.update(id, patch).then(() => {
+    if (loses) offerUndoNoDate(t);
+  }));
+}
+
+/** The snackbar after a task lost its date and with it a repeat or a time. */
+function offerUndoNoDate(t) {
+  showSnack({
+    id: t.id,
+    prefix: t.repeat ? 'Без срока, повтор снят:' : 'Без срока, время снято:',
+    text: t.title,
+    undo: () => save(api.update(t.id, { due: t.due, time: t.time, repeat: t.repeat, order: t.order ?? null })),
+  });
 }
 
 /**
@@ -703,12 +717,7 @@ function dropTask(id, clientY) {
       // A drop doesn't focus the target window; without this, Ctrl+Z would go
       // to the widget the task came from.
       focusSelf();
-      showSnack({
-        id,
-        prefix: t.repeat ? 'Без срока, повтор снят:' : 'Без срока, время снято:',
-        text: t.title,
-        undo: () => save(api.update(id, { due: t.due, time: t.time, repeat: t.repeat, order: t.order ?? null })),
-      });
+      offerUndoNoDate(t);
     }));
   }
 }
@@ -838,7 +847,10 @@ document.addEventListener('contextmenu', (e) => {
   if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
 });
 
+// What the events already said wins over the first reply, which may be older.
+let heardTasks = false, heardStatus = false;
 listenAll('tasks-changed', (list) => {
+  heardTasks = true;
   tasks = list;
   render();
 });
@@ -855,6 +867,7 @@ listenAll('widgets-movable', setMovable);
 api.movable().then(setMovable).catch(() => {});
 
 listenAll('store-status', (error) => {
+  heardStatus = true;
   storeError = error;
   render();
 });
@@ -866,7 +879,7 @@ setInterval(() => {
 addInput.placeholder = KIND === 'upcoming' ? 'Новая задача · «в пт в 15»' : 'Новая задача';
 initBackdrop(document.querySelector('.wall'));
 Promise.all([api.tasks(), api.storeStatus()]).then(([list, error]) => {
-  tasks = list;
-  storeError = error;
+  if (!heardTasks) tasks = list;
+  if (!heardStatus) storeError = error;
   render();
 });

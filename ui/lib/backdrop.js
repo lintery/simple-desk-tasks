@@ -39,9 +39,12 @@ export function initBackdrop(canvas) {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.filter = `blur(${BLUR * k}px) saturate(1.4)`;
-    // Wallpaper's top-left relative to this canvas, in canvas px.
-    const x = (((monW - w) / 2 - winX) / scale + BLEED) * k;
-    const y = (((monH - h) / 2 - winY) / scale + BLEED) * k;
+    // Wallpaper's top-left relative to this canvas, in canvas px: centred on
+    // the monitor (for "span", on all monitors together), or for "tile" from
+    // the monitor's top-left corner, as Windows lays the tiles.
+    const tile = style === 'tile';
+    const x = (((tile ? 0 : (monW - w) / 2) - winX) / scale + BLEED) * k;
+    const y = (((tile ? 0 : (monH - h) / 2) - winY) / scale + BLEED) * k;
     const dw = (w / scale) * k, dh = (h / scale) * k;
     if (style === 'tile') {
       for (let ty = y - Math.ceil(y / dh) * dh; ty < canvas.height; ty += dh) {

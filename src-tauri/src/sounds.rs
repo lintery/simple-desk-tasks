@@ -102,7 +102,7 @@ pub async fn sound_recording(app: AppHandle, id: String) -> Result<Response, Str
     let bytes = tauri::async_runtime::spawn_blocking(move || {
         // SAFETY: plain call; WinRT needs the thread initialized before use.
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
-        load(&dir, &id, |url| crate::net::get(url, TIMEOUT).map_err(|e| format!("Не удалось скачать звук: {e}")))
+        load(&dir, &id, |url| crate::net::get(url, TIMEOUT, "GitHub"))
     })
     .await
     .map_err(|e| e.to_string())??;

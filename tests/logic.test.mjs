@@ -60,6 +60,11 @@ test('recurrence', () => {
   assert.equal(morning.due, '2026-10-24');
 
   assert.deepEqual(p('оплатить аренду каждый месяц 1.11').repeat, { kind: 'monthly', day: 1 });
+
+  // A date off the rule's days: the series starts on the first matching day from it.
+  const offRule = p('планёрка каждый пн 27.10'); // the 27th is a Tuesday
+  assert.equal(offRule.due, '2026-11-02');
+  assert.deepEqual(offRule.repeat, { kind: 'weekly', days: [1] });
 });
 
 test('numbers that are not times or dates stay in the title', () => {

@@ -29,7 +29,7 @@ use windows::{
         },
     },
 };
-use windows_future::{AsyncStatus, IAsyncOperationWithProgress};
+use windows_future::{AsyncStatus, IAsyncOperation, IAsyncOperationWithProgress};
 use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
 pub const APP_ID: &str = "DeskTasks.Widgets";
@@ -80,11 +80,11 @@ pub fn open_url(url: String) -> Result<(), String> {
     let url = url.trim();
     let lower = url.to_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
-        return Err("only http(s) links can be opened".into());
+        return Err("Открываются только ссылки на сайты (http и https)".into());
     }
     let res = unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(url), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
     // ShellExecute reports success as a value > 32.
-    if res.0 as isize > 32 { Ok(()) } else { Err(format!("couldn't open link ({})", res.0 as isize)) }
+    if res.0 as isize > 32 { Ok(()) } else { Err("Ссылка не открылась — проверьте, что в Windows выбран браузер по умолчанию".into()) }
 }
 
 /// Makes the desktop (Progman) the owner of the widget, so "Show desktop"
@@ -197,6 +197,22 @@ pub fn bring_to_front(win: &WebviewWindow) -> bool {
         }
         GetForegroundWindow() == h
     }
+}
+
+/// `finish` for an operation without progress reports (media sessions, streams).
+pub fn finish_op<T>(op: IAsyncOperation<T>, timeout: Duration) -> windows::core::Result<T>
+where
+    T: windows::core::RuntimeType + 'static,
+{
+    let until = Instant::now() + timeout;
+    while op.Status()? == AsyncStatus::Started {
+        if Instant::now() >= until {
+            let _ = op.Cancel();
+            return Err(windows::core::Error::new(ERROR_TIMEOUT.to_hresult(), "не ответил вовремя"));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    op.GetResults()
 }
 
 /// Waits for a WinRT operation (an HTTP request, a read), cancelling it after

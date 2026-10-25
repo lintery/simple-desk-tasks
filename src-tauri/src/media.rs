@@ -5,6 +5,7 @@
 
 use serde::Serialize;
 use std::{path::Path, sync::Mutex, thread, time::Duration};
+use crate::desktop::finish_op;
 use tauri::{AppHandle, Emitter, Manager};
 use windows::{
     core::{Interface, Result as WinResult, PWSTR},
@@ -40,6 +41,10 @@ const COVER_RETRIES: u32 = 4;
 /// With nothing found for this many polls the session manager is asked for
 /// again, in case the system's media host restarted under it.
 const MISSES_TO_RECONNECT: u32 = 10;
+/// How long a player gets to answer: a hung one mustn't freeze the poll.
+const WAIT: Duration = Duration::from_secs(3);
+const NOT_ANSWERING: &str = "Плеер не отвечает";
+const NO_VOLUME: &str = "Громкость этого плеера недоступна";
 
 #[derive(Serialize, Clone, PartialEq, Default, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -234,12 +239,12 @@ pub fn base64(bytes: &[u8]) -> String {
 }
 
 fn read_cover(thumb: &IRandomAccessStreamReference) -> Option<String> {
-    let stream = thumb.OpenReadAsync().ok()?.get().ok()?;
+    let stream = finish_op(thumb.OpenReadAsync().ok()?, WAIT).ok()?;
     let size = u32::try_from(stream.Size().ok()?).ok().filter(|s| *s > 0 && *s < 4_000_000)?;
     let kind = stream.ContentType().map(|s| s.to_string()).unwrap_or_default();
     let kind = if kind.starts_with("image/") { kind } else { "image/jpeg".to_string() };
     let reader = DataReader::CreateDataReader(&stream).ok()?;
-    reader.LoadAsync(size).ok()?.get().ok()?;
+    finish_op(reader.LoadAsync(size).ok()?.cast::<windows_future::IAsyncOperation<u32>>().ok()?, WAIT).ok()?;
     let mut buf = vec![0u8; size as usize];
     reader.ReadBytes(&mut buf).ok()?;
     Some(format!("data:{kind};base64,{}", base64(&buf)))
@@ -254,7 +259,7 @@ struct Cover {
 
 /// `None` when the session has nothing to show (no title).
 fn read(session: &Session, id: &str, cover: &mut Cover) -> WinResult<Option<Media>> {
-    let props = session.TryGetMediaPropertiesAsync()?.get()?;
+    let props = finish_op(session.TryGetMediaPropertiesAsync()?, WAIT)?;
     let title = props.Title()?.to_string();
     if title.is_empty() {
         return Ok(None);
@@ -338,7 +343,7 @@ pub fn spawn(app: AppHandle) {
         let mut misses = 0;
         loop {
             if manager.is_none() {
-                manager = SessionManager::RequestAsync().and_then(|op| op.get()).ok();
+                manager = SessionManager::RequestAsync().and_then(|op| finish_op(op, WAIT)).ok();
             }
             let shown_id = SHOWN.lock().unwrap().as_ref().map(|(id, _)| id.clone());
             match manager.as_ref().and_then(|m| find(m, shown_id.as_deref(), &mut cover)) {
@@ -377,7 +382,7 @@ pub async fn media_control(action: String, value: Option<f64>) -> Result<(), Str
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
         let value = value.filter(|v| v.is_finite());
         let _turn = matches!(action.as_str(), "volume" | "mute").then(|| MIXER.lock().unwrap());
-        let manager = SessionManager::RequestAsync().and_then(|op| op.get()).map_err(|e| e.to_string())?;
+        let manager = SessionManager::RequestAsync().and_then(|op| finish_op(op, WAIT)).map_err(|_| NOT_ANSWERING)?;
         let shown_id = SHOWN.lock().unwrap().as_ref().map(|(id, _)| id.clone());
         let (session, id) = pick(&manager, shown_id.as_deref(), &[]).ok_or("Плеер не найден")?;
         let op = match action.as_str() {
@@ -392,34 +397,34 @@ pub async fn media_control(action: String, value: Option<f64>) -> Result<(), Str
             }),
             "seek" => {
                 let ms = value.ok_or("no position")?.max(0.0) as i64;
-                let start = session.GetTimelineProperties().and_then(|t| t.StartTime()).map_err(|e| e.to_string())?;
+                let start = session.GetTimelineProperties().and_then(|t| t.StartTime()).map_err(|_| NOT_ANSWERING)?;
                 session.TryChangePlaybackPositionAsync(start.Duration + ms * 10_000)
             }
             "volume" | "mute" => {
                 let v = value.ok_or("no value")?;
                 let volumes = app_volumes(&id);
                 if volumes.is_empty() {
-                    return Err("Громкость этого плеера недоступна".into());
+                    return Err(NO_VOLUME.into());
                 }
                 for control in volumes {
                     // SAFETY: COM setters on an interface we own; a null event context is allowed.
                     unsafe {
                         if action == "volume" {
-                            control.SetMasterVolume(v.clamp(0.0, 1.0) as f32, std::ptr::null()).map_err(|e| e.to_string())?;
+                            control.SetMasterVolume(v.clamp(0.0, 1.0) as f32, std::ptr::null()).map_err(|_| NO_VOLUME)?;
                             let _ = control.SetMute(false, std::ptr::null());
                         } else {
-                            control.SetMute(v > 0.5, std::ptr::null()).map_err(|e| e.to_string())?;
+                            control.SetMute(v > 0.5, std::ptr::null()).map_err(|_| NO_VOLUME)?;
                         }
                     }
                 }
                 return Ok(());
             }
-            _ => return Err(format!("unknown action {action}")),
+            _ => return Err(NOT_ANSWERING.into()),
         };
-        op.and_then(|op| op.get()).map(|_| ()).map_err(|e| e.to_string())
+        op.and_then(|op| finish_op(op, WAIT)).map(|_| ()).map_err(|_| NOT_ANSWERING.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|_| NOT_ANSWERING.to_string())?
 }
 
 #[cfg(test)]

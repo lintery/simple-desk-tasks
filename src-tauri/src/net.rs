@@ -5,9 +5,9 @@ use crate::desktop::finish;
 use std::time::Duration;
 use windows::{core::HSTRING, Foundation::Uri, Storage::Streams::DataReader, Web::Http::HttpClient};
 
-/// The body of `url`; a non-2xx answer is an error. Call from a thread with
-/// WinRT initialized.
-pub fn get(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
+/// The body of `url`; a non-2xx answer is an error, told the user's way
+/// about `site` (see errors::net). Call from a thread with WinRT initialized.
+pub fn get(url: &str, timeout: Duration, site: &str) -> Result<Vec<u8>, String> {
     let fetch = || -> windows::core::Result<Vec<u8>> {
         let client = HttpClient::new()?;
         let headers = client.DefaultRequestHeaders()?;
@@ -18,5 +18,5 @@ pub fn get(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
         DataReader::FromBuffer(&buffer)?.ReadBytes(&mut bytes)?;
         Ok(bytes)
     };
-    fetch().map_err(|e| e.message().to_string())
+    fetch().map_err(|e| crate::errors::net(&e, site))
 }

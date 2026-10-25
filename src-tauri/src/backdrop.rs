@@ -78,13 +78,26 @@ pub fn compute(win: &WebviewWindow) -> Option<Backdrop> {
     if pos.x <= -30000 {
         return None;
     }
+    let style = wallpaper_style();
+    // "Span" lays one picture over all monitors together: the area it fills is
+    // their bounding box, not this monitor.
+    let (x0, y0, w, h) = match (style, win.available_monitors()) {
+        ("span", Ok(all)) if !all.is_empty() => {
+            let left = all.iter().map(|m| m.position().x).min().unwrap_or(0);
+            let top = all.iter().map(|m| m.position().y).min().unwrap_or(0);
+            let right = all.iter().map(|m| m.position().x + m.size().width as i32).max().unwrap_or(0);
+            let bottom = all.iter().map(|m| m.position().y + m.size().height as i32).max().unwrap_or(0);
+            (left, top, (right - left).max(1) as u32, (bottom - top).max(1) as u32)
+        }
+        _ => (mon.position().x, mon.position().y, mon.size().width, mon.size().height),
+    };
     Some(Backdrop {
-        mon_w: mon.size().width,
-        mon_h: mon.size().height,
-        win_x: pos.x - mon.position().x,
-        win_y: pos.y - mon.position().y,
+        mon_w: w,
+        mon_h: h,
+        win_x: pos.x - x0,
+        win_y: pos.y - y0,
         scale: mon.scale_factor(),
-        style: wallpaper_style(),
+        style,
         ver: wallpaper_version(),
     })
 }
