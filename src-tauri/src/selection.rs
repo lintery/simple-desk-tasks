@@ -29,8 +29,8 @@ use windows::{
         System::{
             DataExchange::{
                 CloseClipboard, CountClipboardFormats, EmptyClipboard, EnumClipboardFormats, GetClipboardData,
-                GetClipboardOwner, GetClipboardSequenceNumber, OpenClipboard, RegisterClipboardFormatW,
-                SetClipboardData,
+                GetClipboardOwner, GetClipboardSequenceNumber, IsClipboardFormatAvailable, OpenClipboard,
+                RegisterClipboardFormatW, SetClipboardData,
             },
             Diagnostics::ToolHelp::{
                 CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
@@ -50,6 +50,7 @@ use windows::{
 
 const CF_UNICODETEXT: u32 = 13;
 const CF_ENHMETAFILE: u32 = 14;
+const CF_HDROP: u32 = 15;
 /// Formats whose handle isn't an HGLOBAL. CF_BITMAP is covered by the CF_DIB
 /// Windows synthesizes; CF_ENHMETAFILE is copied as a metafile.
 const NON_MEMORY_FORMATS: [u32; 7] = [2, 3, 9, 0x80, 0x82, 0x83, 0x8E];
@@ -499,6 +500,12 @@ fn save_all(_: ()) -> Option<(Vec<Saved>, u32)> {
     let mut out = Vec::new();
     let mut total = 0usize;
     let mut failed = false;
+    // Copied files (Explorer, screenshots) carry their bytes as FileContents,
+    // a stream only OLE can hand out; with the files themselves listed in
+    // CF_HDROP it adds nothing, so it may be left behind.
+    let file_contents = unsafe { RegisterClipboardFormatW(w!("FileContents")) };
+    let has_files = unsafe { IsClipboardFormatAvailable(CF_HDROP) }.is_ok();
+    let mut skipped_contents = false;
     let mut fmt = 0u32;
     loop {
         fmt = unsafe { EnumClipboardFormats(fmt) };
@@ -512,7 +519,11 @@ fn save_all(_: ()) -> Option<(Vec<Saved>, u32)> {
             continue;
         }
         let Ok(h) = (unsafe { GetClipboardData(fmt) }) else {
-            failed = true;
+            if has_files && fmt == file_contents {
+                skipped_contents = true;
+            } else {
+                failed = true;
+            }
             continue;
         };
         if fmt == CF_ENHMETAFILE {
@@ -533,6 +544,17 @@ fn save_all(_: ()) -> Option<(Vec<Saved>, u32)> {
     let owner_alive = unsafe { GetClipboardOwner() }.is_ok_and(|w| !w.0.is_null() && unsafe { IsWindow(Some(w)) }.as_bool());
     if failed && owner_alive {
         return None;
+    }
+    if skipped_contents {
+        // Without FileContents, nothing may still promise it: not the virtual
+        // files' descriptors, nor the source's OLE format table and object
+        // (OLE then goes by the plain formats that are really there).
+        let promises: Vec<u32> = [w!("FileGroupDescriptorW"), w!("FileGroupDescriptor"), w!("Ole Private Data"), w!("DataObject")]
+            .into_iter()
+            .map(|name| unsafe { RegisterClipboardFormatW(name) })
+            .filter(|&f| f != 0)
+            .collect();
+        out.retain(|s| !matches!(s, Saved::Memory(f, _) if promises.contains(f)));
     }
     // Read while still open: renders we triggered above are already counted.
     Some((out, unsafe { GetClipboardSequenceNumber() }))
