@@ -68,8 +68,8 @@ const RECORDING_EVENTS = {
     chimeLevel: 0.25,
     announcementLevel: 1,
     // seconds: when the first comes, and between them
-    firstChime: [60, 180], chimeEvery: [240, 480],
-    firstAnnouncement: [240, 600], announcementEvery: [900, 1500],
+    firstChime: [30, 90], chimeEvery: [120, 300],
+    firstAnnouncement: [120, 300], announcementEvery: [480, 720],
   },
 };
 /** After a failed download a sound is synthesized; it's tried again this much later. */
@@ -1058,16 +1058,27 @@ export function buildRecording(ctx, id, rec, dest, { t0 = ctx.currentTime, fadeI
       pan.pan.value = rand(-0.15, 0.15);
       v.shot(buf, t, [v.tmpGain(level), pan], trim); // released with the shot
     };
+    // Neither runs over the other: no chime during an announcement, and an
+    // announcement waits out a chime just rung.
+    let quietUntil = -Infinity, chimeEnds = -Infinity;
     v.every(firstChime ?? rand(...ev.firstChime), (t) => {
+      if (t < quietUntil) return quietUntil - t + rand(5, 20);
       const some = chimes.filter((b, i) => b && i !== ev.callChime);
-      if (some.length) play(pick(some), t, ev.chimeLevel);
+      if (some.length) {
+        const b = pick(some);
+        play(b, t, ev.chimeLevel);
+        chimeEnds = t + b.duration;
+      }
       return rand(...ev.chimeEvery);
     });
     v.every(firstAnnouncement ?? rand(...ev.firstAnnouncement), (t) => {
       const said = announcements.filter(Boolean), call = chimes[ev.callChime];
       if (said.length) {
+        t = Math.max(t, chimeEnds + 1.5);
+        const at = t + (call ? call.duration + 0.8 : 0), speech = pick(said);
         if (call) play(call, t, ev.chimeLevel);
-        play(pick(said), t + (call ? call.duration + 0.8 : 0), ev.announcementLevel);
+        play(speech, at, ev.announcementLevel);
+        quietUntil = at + speech.duration + 3;
       }
       return rand(...ev.announcementEvery);
     });
