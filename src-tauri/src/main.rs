@@ -268,7 +268,7 @@ fn toggle_quick(app: &AppHandle, grab_selection: bool) {
     }
     let owner = desktop::hwnd_value(&win);
     match owner.filter(|_| grab_selection) {
-        // Capturing waits for the hotkey's keys to be released: off the main thread.
+        // Capturing waits on the app's copy and the clipboard: off the main thread.
         Some(owner) => {
             if CAPTURING.swap(true, Ordering::SeqCst) {
                 hotkey_log(app, "ignored: the previous press is still copying".into());

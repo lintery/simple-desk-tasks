@@ -38,9 +38,9 @@ use windows::{
         },
         UI::{
             Input::KeyboardAndMouse::{
-                GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-                KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_INSERT, VK_LWIN, VK_MENU,
-                VK_RWIN, VK_SHIFT,
+                GetAsyncKeyState, MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+                KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC, VIRTUAL_KEY, VK_CONTROL,
+                VK_INSERT, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN,
             },
             WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId, IsHungAppWindow, IsWindow},
         },
@@ -59,6 +59,20 @@ const MAX_CHARS: usize = 500;
 /// these limits we don't touch the clipboard at all.
 const SAVE_BUDGET: Duration = Duration::from_millis(600);
 const SAVE_MAX_BYTES: usize = 64 * 1024 * 1024;
+/// Modifiers a copy has to step around, left and right apart, and whether
+/// each is an extended key.
+const MODIFIERS: [(VIRTUAL_KEY, bool); 8] = [
+    (VK_LMENU, false),
+    (VK_RMENU, true),
+    (VK_LCONTROL, false),
+    (VK_RCONTROL, true),
+    (VK_LSHIFT, false),
+    (VK_RSHIFT, false),
+    (VK_LWIN, true),
+    (VK_RWIN, true),
+];
+/// Unassigned virtual key used as a mask (see send_copy).
+const MASK_KEY: VIRTUAL_KEY = VIRTUAL_KEY(0xE8);
 /// How long the copy we sent is waited for before the popup opens without it.
 const COPY_WAIT: Duration = Duration::from_millis(250);
 /// How long the popup waits to read the copied text (the clipboard restore
@@ -122,7 +136,7 @@ impl Check {
 }
 
 /// Selected text of the foreground app, if any, or why there's none (for the
-/// hotkey log). Blocks for up to ~2 s (usually a few hundred ms), so call it
+/// hotkey log). Blocks for up to ~1.3 s (usually a few hundred ms), so call it
 /// off the main thread.
 /// `owner` is one of our windows (needed to restore the clipboard).
 pub fn capture(owner: HWND) -> Result<String, &'static str> {
@@ -136,9 +150,8 @@ pub fn capture(owner: HWND) -> Result<String, &'static str> {
     }
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let target = pid_of(fg);
-    if !wait_modifiers_released(Duration::from_millis(800)) {
-        return Err("keys held"); // a copy now would be Alt+Ctrl+Insert
-    }
+    // No waiting for the hotkey's Alt to be let go: send_copy works around
+    // whatever is still held.
     if clipboard_owner_hung() {
         return Err("clipboard owner hung"); // reading its data would block
     }
@@ -316,20 +329,6 @@ fn key_down(vk: VIRTUAL_KEY) -> bool {
     unsafe { GetAsyncKeyState(vk.0 as i32) as u16 & 0x8000 != 0 }
 }
 
-/// The hotkey's own Alt/Ctrl/Shift may still be held; a copy sent now would
-/// arrive as e.g. Alt+Ctrl+Insert. False if they're still held at the limit.
-fn wait_modifiers_released(limit: Duration) -> bool {
-    let deadline = Instant::now() + limit;
-    let held = || [VK_MENU, VK_CONTROL, VK_SHIFT, VK_LWIN, VK_RWIN].into_iter().any(key_down);
-    while held() {
-        if Instant::now() > deadline {
-            return false;
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    true
-}
-
 /// The clipboard's owner doesn't respond: asking it for delayed data would hang.
 fn clipboard_owner_hung() -> bool {
     unsafe { GetClipboardOwner() }.is_ok_and(|w| !w.0.is_null() && unsafe { IsHungAppWindow(w) }.as_bool())
@@ -349,13 +348,34 @@ fn key(vk: VIRTUAL_KEY, up: bool, extended: bool) -> INPUT {
     }
 }
 
+/// A key with its scan code (for modifiers: the specific left/right one), so
+/// Windows and apps that read scan codes take it for that very key.
+fn modifier(vk: VIRTUAL_KEY, extended: bool, up: bool) -> INPUT {
+    let mut input = key(vk, up, extended);
+    input.Anonymous.ki.wScan = unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) } as u16;
+    input
+}
+
+/// Ctrl+Insert, "blind" to the modifiers the user still holds (people keep
+/// Alt down a while after N; a copy then would be Alt+Ctrl+Insert): in one
+/// SendInput, never interleaved with real keys, the held ones are let go,
+/// the copy sent, and they're pressed again, so Windows' idea of the keyboard
+/// matches the user's hands (a second Alt+N is still the hotkey). Mask keys
+/// around it keep any Alt or Win press/release pair from opening a menu or
+/// Start.
 fn send_copy() {
-    let inputs = [
-        key(VK_CONTROL, false, false),
-        key(VK_INSERT, false, true),
-        key(VK_INSERT, true, true),
-        key(VK_CONTROL, true, false),
-    ];
+    let held: Vec<(VIRTUAL_KEY, bool)> = MODIFIERS.into_iter().filter(|&(vk, _)| key_down(vk)).collect();
+    let mut inputs = vec![key(MASK_KEY, false, false), key(MASK_KEY, true, false)];
+    inputs.extend(held.iter().map(|&(vk, ext)| modifier(vk, ext, true)));
+    inputs.extend([
+        modifier(VK_LCONTROL, false, false),
+        // with its scan code too: remote desktop and VM clients read those
+        modifier(VK_INSERT, true, false),
+        modifier(VK_INSERT, true, true),
+        modifier(VK_LCONTROL, false, true),
+    ]);
+    inputs.extend(held.iter().map(|&(vk, ext)| modifier(vk, ext, false)));
+    inputs.extend([key(MASK_KEY, false, false), key(MASK_KEY, true, false)]);
     unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
 }
 
