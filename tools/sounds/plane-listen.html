@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Самолёт</title>
+<!-- «Самолёт» through the app's own engine (ui/lib/sounds.js): the cabin loop
+     with its chimes and announcements, which buttons can call up at once.
+     Serve the repo on 8770 and the built files on 8771, both with
+     tools/sounds/cors_server.py, then open http://127.0.0.1:8771/plane-listen.html
+     (copy this page next to the files). -->
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 24px; background: #17171b; color: #e8e8ee; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; max-width: 640px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { color: #9a9aa8; margin: 0 0 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  button { font: inherit; font-size: 13px; font-weight: 600; border: 0; border-radius: 6px; padding: 7px 13px; cursor: pointer; background: #31313a; color: #e8e8ee; }
+  button.pri { background: #8e9fff; color: #14141a; }
+  button:disabled { opacity: .4; cursor: default; }
+  #log { color: #9a9aa8; font-size: 12.5px; white-space: pre-line; }
+</style>
+</head>
+<body>
+<h1>Самолёт</h1>
+<p>Салон 737 в полёте, как в виджете. В приложении сигналы звучат раз в 4–8 минут, объявления — раз в 15–25 минут; здесь их можно вызвать сразу.</p>
+<div class="row"><button class="pri" id="play">Лететь</button><button id="stop" disabled>Стоп</button></div>
+<div class="row" id="chimes"></div>
+<div class="row" id="pa"></div>
+<div id="log"></div>
+<script type="module">
+const ENGINE = 'http://127.0.0.1:8770/ui/lib/sounds.js';
+const { buildRecording, buildMaster } = await import(ENGINE);
+const $ = (id) => document.getElementById(id);
+const log = (s) => { $('log').textContent = s + '\n' + $('log').textContent; };
+const manifest = await (await fetch('plane.json')).json();
+let ctx, master, voice, rec;
+
+async function decode(file) { return ctx.decodeAudioData(await (await fetch(`${file}.opus`)).arrayBuffer()); }
+async function start() {
+  ctx ??= new AudioContext();
+  master ??= buildMaster(ctx);
+  await ctx.resume();
+  rec ??= {
+    buffer: await decode('plane'),
+    events: {
+      chimes: await Promise.all(manifest.chimes.map((c) => decode(c.file))),
+      announcements: await Promise.all(manifest.announcements.map((a) => decode(a.file))),
+    },
+  };
+  voice?.dispose();
+  // Events far off: the buttons call them up.
+  voice = buildRecording(ctx, 'plane', rec, master.sounds, { firstChime: 1e9, firstAnnouncement: 1e9 });
+  $('stop').disabled = false;
+  log('летим');
+}
+// One event through a throwaway voice of the same kind, so levels and panning are the app's.
+function event(kind, i) {
+  if (!voice) return;
+  const only = { buffer: ctx.createBuffer(1, 1, ctx.sampleRate), events: { chimes: [], announcements: [] } };
+  if (kind === 'chime') only.events.chimes[0] = rec.events.chimes[i]; // slot 1 is the call chime, kept for announcements
+  else { only.events.announcements[0] = rec.events.announcements[i]; only.events.chimes[1] = rec.events.chimes[1]; }
+  const t0 = ctx.currentTime + 0.05;
+  const v = buildRecording(ctx, 'plane', only, master.sounds, { t0, fadeIn: 0, firstChime: kind === 'chime' ? 0.01 : 1e9, firstAnnouncement: kind === 'chime' ? 1e9 : 0.01 });
+  v.tick(t0 + 0.5, ctx.currentTime);
+  setTimeout(() => v.dispose(), 90_000);
+}
+$('play').onclick = start;
+$('stop').onclick = () => { voice?.dispose(); voice = null; $('stop').disabled = true; log('стоп'); };
+const names = { seatbelt: 'Табло «ремни»', tritone: 'Вызов экипажа', double: 'Двойной сигнал' };
+manifest.chimes.forEach((c, i) => {
+  const b = document.createElement('button');
+  b.textContent = names[c.from] ?? c.file;
+  b.onclick = () => { event('chime', i); log(`сигнал: ${b.textContent}`); };
+  $('chimes').append(b);
+});
+manifest.announcements.forEach((a, i) => {
+  const b = document.createElement('button');
+  b.textContent = `Объявление ${i + 1} · ${Math.round(a.seconds)} с`;
+  b.onclick = () => { event('pa', i); log(`объявление ${i + 1} (${a.from})`); };
+  $('pa').append(b);
+});
+</script>
+</body>
+</html>

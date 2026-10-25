@@ -18,5 +18,12 @@
 | forest.opus | [sfx_amb_forest_spring_afternoon-01](https://freesound.org/people/bajko/sounds/385280/) | bajko |
 | fan.opus | [Electric Fan 01](https://freesound.org/people/unfa/sounds/170870/) | unfa |
 | train.opus | [Empty train moving slowly](https://freesound.org/people/avakas/sounds/197124/) | avakas |
+| plane.opus | [737 Plane Flight (passenger cabin)](https://freesound.org/people/courter/sounds/447825/) | courter |
+| plane-chime-1.opus | [Airplane, Seatbelt Sign Beep](https://freesound.org/people/Kinoton/sounds/670297/) | Kinoton |
+| plane-chime-2.opus | [A320 tritone chime](https://freesound.org/people/nachosose/sounds/244583/) | nachosose |
+| plane-chime-3.opus | [A320 Double Chime](https://freesound.org/people/JOHNNYFIVE/sounds/457922/) | JOHNNYFIVE |
+| plane-pa-1…4.opus | [Delta 1888 in-flight announcements](https://freesound.org/people/the_toilet_guy/sounds/580521/) | the_toilet_guy |
+| plane-pa-5.opus | [Commercial Jet In-Flight Announcements](https://freesound.org/people/Filmscore/sounds/823068/) | Filmscore |
+| plane-pa-6.opus | [Plane SpeakerAnnouncement](https://freesound.org/people/mrspivey/sounds/805173/) | mrspivey |
 
 Спасибо авторам записей.

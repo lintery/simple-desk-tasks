@@ -17,8 +17,9 @@ use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 const BASE: &str = "https://github.com/lintery/simple-desk-tasks/releases/download/sounds-v1/";
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Sound id (as in ui/lib/sounds.js) and the SHA-256 of its loop, `<id>.opus`.
-const RECORDINGS: [(&str, &str); 14] = [
+/// A file of the release, `<name>.opus`, by name (as ui/lib/sounds.js asks
+/// for it: a sound's loop, or one of its one-shots), and its SHA-256.
+const RECORDINGS: [(&str, &str); 24] = [
     ("rain-light", "d629837ae986eceb2e2ee444a48d63bc2dd4bf310802e1350b006167a24fc1d0"),
     ("rain", "723a8e7e21b23a3a1fc2e49cb6a0584ab015b283ce7dcb8c55b1098a96f7546d"),
     ("rain-heavy", "0820f351d8ae9afe7de46524811d3f4234007ff75d8436fd2d549fe7729ed395"),
@@ -33,6 +34,17 @@ const RECORDINGS: [(&str, &str); 14] = [
     ("forest", "f6a5ccfc50ee1bf7992e960700afd0cbaca541194c0f9b988d4c7ba9813d15c2"),
     ("fan", "21632013d75f9aee6b8914d2513e917bab65483ae9a1e2a47bf2c93873e2b32c"),
     ("train", "b95a6f648fa7a8effb89d2f81b2f45341a494438bcbd366a4a4d53d2529cad0e"),
+    ("plane", "cb331406888bfe9ca357f4d7e6219227f0c527c814ad07650e0494a8090ab51a"),
+    // the plane's chimes and announcements
+    ("plane-chime-1", "9ac64c3913b35df531282ca536169a1afe9a1a3b505a6b601adec0d24c307830"),
+    ("plane-chime-2", "bc040a1acf2b94aabb8ee0dfa68b7d290166789b41a6485d9505c62309946740"),
+    ("plane-chime-3", "c0dd15d9a55503e82899d64e096f01b5a532448b66343e2ae18f551ff24d7232"),
+    ("plane-pa-1", "912b8193f612e1444008f31c71e46123addc2b4c67b3e316df643cb80e87e24d"),
+    ("plane-pa-2", "7fb75b01f095feb2d389868745d5d6114fc5e09f4547bb488f65c0b480320875"),
+    ("plane-pa-3", "d17b8aad56daead7c571172036c90aaac099cc9083106f3d35e77dfb2464ed30"),
+    ("plane-pa-4", "5054ec06334e2f1a034f4cf910a933e7208fc37302d2cdde0f989f011596d006"),
+    ("plane-pa-5", "7d1ac43d7b1270d1c9fb23b0cee26a2edacdd23b82af7935ea2cb0989818b625"),
+    ("plane-pa-6", "2048b08c4e079043a2df10474536013d173c584fae746c05a46c2b244d00da96"),
 ];
 
 /// One download at a time (a sound picked twice quickly is fetched once).
@@ -109,11 +121,11 @@ mod tests {
     }
 
     #[test]
-    fn every_recording_is_a_sound_of_the_focus_page() {
+    fn every_file_is_one_the_focus_page_asks_for() {
         let page = include_str!("../../ui/lib/sounds.js");
-        for (id, sha) in RECORDINGS {
-            assert!(page.contains(&format!("id: '{id}'")), "{id}");
-            assert_eq!(sha.len(), 64, "{id}");
+        for (name, sha) in RECORDINGS {
+            assert!(page.contains(&format!("'{name}'")), "{name}");
+            assert_eq!(sha.len(), 64, "{name}");
         }
     }
 

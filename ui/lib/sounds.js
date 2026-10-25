@@ -1,9 +1,9 @@
 // sounds.js: ambient sounds and chimes, Web Audio API only.
 //
-// Rain, nature, fan and train are field recordings: seamless loops the app
+// Rain, nature, fan, train and plane are field recordings: seamless loops the app
 // downloads once (sounds.rs) and hands over through createAudio's `load`.
 // Without them (offline, a dev page) every sound is synthesized as below, and
-// the noises always are.
+// white, pink and brown noise always are.
 //
 // Synthesis: no audio files, no per-sample JS at runtime. Once per AudioContext
 // (lazily, per kind) we compute noise loops, banks of short one-shot "grains"
@@ -29,6 +29,7 @@ export const SOUNDS = [
   { id: 'brown', title: 'Коричневый шум', group: 'noise' },
   { id: 'fan', title: 'Вентилятор', group: 'noise' },
   { id: 'train', title: 'Поезд', group: 'noise' },
+  { id: 'plane', title: 'Самолёт', group: 'noise' },
 ];
 
 const FADE = 1.5;          // s, fade in / fade out / crossfade
@@ -43,7 +44,7 @@ const volumeCurve = (v) => v * v; // slider position -> gain, roughly perceptual
 const TRIM = {
   'rain-light': 0.99, rain: 0.53, 'rain-heavy': 0.35, 'rain-wind': 0.54, 'rain-thunder': 0.38, 'rain-roof': 0.54,
   waves: 1, fire: 1.43, wind: 1.25, stream: 0.64, night: 0.65, forest: 1.32,
-  white: 0.35, pink: 0.46, brown: 0.64, fan: 0.68, train: 0.72,
+  white: 0.35, pink: 0.46, brown: 0.64, fan: 0.68, train: 0.72, plane: 0.49,
 };
 
 // The recorded loops and their trim to the synthesized sounds' loudness
@@ -51,10 +52,26 @@ const TRIM = {
 // +9 dB so its crackles don't push the limiter).
 const RECORDING_TRIM = {
   'rain-light': 1.84, rain: 1.91, 'rain-heavy': 1.86, 'rain-wind': 1.8, 'rain-thunder': 1.86, 'rain-roof': 1.76,
-  waves: 2.09, fire: 2.8, wind: 1.88, stream: 1.93, night: 1.74, forest: 2.14, fan: 1.24, train: 1.19,
+  waves: 2.09, fire: 2.8, wind: 1.88, stream: 1.93, night: 1.74, forest: 2.14, fan: 1.24, train: 1.19, plane: 1.8,
 };
-/** Sounds with a recording (the noises are only ever synthesized). */
+/** Sounds with a recording (white, pink and brown noise are only ever synthesized). */
 export const RECORDED = new Set(Object.keys(RECORDING_TRIM));
+/** One-shots a recording plays now and then over its loop, downloaded after
+ * the loop: the cabin's chimes (the seatbelt «ding-dong», the tri-tone that
+ * calls the crew, the double chime) and crew announcements. */
+const RECORDING_EVENTS = {
+  plane: {
+    chimes: ['plane-chime-1', 'plane-chime-2', 'plane-chime-3'],
+    callChime: 1, // the tri-tone, heard before an announcement
+    announcements: ['plane-pa-1', 'plane-pa-2', 'plane-pa-3', 'plane-pa-4', 'plane-pa-5', 'plane-pa-6'],
+    // over the cabin: the chimes soft but clear, the voice a couple of dB above the roar
+    chimeLevel: 0.25,
+    announcementLevel: 1,
+    // seconds: when the first comes, and between them
+    firstChime: [60, 180], chimeEvery: [240, 480],
+    firstAnnouncement: [240, 600], announcementEvery: [900, 1500],
+  },
+};
 /** After a failed download a sound is synthesized; it's tried again this much later. */
 const RETRY_MS = 60_000;
 /** A recording slower to arrive than this has the synthesized sound fill in meanwhile. */
@@ -896,6 +913,16 @@ function trainLayer(v, dest) {
   });
 }
 
+// Airliner cabin (only when its recording can't be had): the engines' low roar
+// and the air system's broad hiss, both breathing slowly.
+function planeLayer(v, dest) {
+  const lp = v.filter('lowpass', 520, 0.6), roar = v.gain(1), hiss = v.gain(0.12);
+  chain(v.bed('brown'), v.filter('highpass', 35, 0.6), lp, roar, dest);
+  chain(v.bed('pink'), v.filter('bandpass', 1800, 0.5), hiss, dest);
+  v.drift(lp.frequency, 420, 620, 8, 16);
+  v.drift(roar.gain, 0.92, 1.05, 6, 14);
+}
+
 // Rain on a roof / window: rain bed + dense close taps on wood and glass + a gutter
 // off to one side (running water and bubbles) + a slow, uneven drip.
 function roofLayer(v, dest) {
@@ -960,6 +987,7 @@ const BUILDERS = {
   },
   fan: (v, d) => fanLayer(v, d),
   train: (v, d) => trainLayer(v, d),
+  plane: (v, d) => planeLayer(v, d),
 };
 
 // ---------------------------------------------------------------- graph builders
@@ -1007,15 +1035,43 @@ export function buildSound(ctx, id, dest, { t0 = ctx.currentTime, fadeIn = FADE,
 }
 
 // A recorded loop as a Voice: the buffer looping from a random point (so a
-// restart doesn't always open the same way), trimmed and faded in.
-export function buildRecording(ctx, id, buffer, dest, { t0 = ctx.currentTime, fadeIn = FADE } = {}) {
+// restart doesn't always open the same way), trimmed and faded in. `rec` is
+// { buffer, events: { chimes: [], announcements: [] } }: the event buffers
+// arrive later (and may never), so each event plays only what's there by then.
+// Test-only options: firstChime, firstAnnouncement (s after t0).
+export function buildRecording(ctx, id, rec, dest, { t0 = ctx.currentTime, fadeIn = FADE, firstChime, firstAnnouncement } = {}) {
   const v = new Voice(ctx, dest, t0);
   v.fadeIn(fadeIn);
+  const trim = v.gain(RECORDING_TRIM[id] ?? 1);
+  trim.connect(v.out);
   const s = v.add(ctx.createBufferSource());
-  s.buffer = buffer;
+  s.buffer = rec.buffer;
   s.loop = true;
-  chain(s, v.gain(RECORDING_TRIM[id] ?? 1), v.out);
-  s.start(t0, rand(0, buffer.duration));
+  s.connect(trim);
+  s.start(t0, rand(0, rec.buffer.duration));
+  const ev = RECORDING_EVENTS[id];
+  if (ev) {
+    const { chimes, announcements } = rec.events;
+    // From the ceiling speakers: centred, a touch to one side or the other.
+    const play = (buf, t, level) => {
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = rand(-0.15, 0.15);
+      v.shot(buf, t, [v.tmpGain(level), pan], trim); // released with the shot
+    };
+    v.every(firstChime ?? rand(...ev.firstChime), (t) => {
+      const some = chimes.filter((b, i) => b && i !== ev.callChime);
+      if (some.length) play(pick(some), t, ev.chimeLevel);
+      return rand(...ev.chimeEvery);
+    });
+    v.every(firstAnnouncement ?? rand(...ev.firstAnnouncement), (t) => {
+      const said = announcements.filter(Boolean), call = chimes[ev.callChime];
+      if (said.length) {
+        if (call) play(call, t, ev.chimeLevel);
+        play(pick(said), t + (call ? call.duration + 0.8 : 0), ev.announcementLevel);
+      }
+      return rand(...ev.announcementEvery);
+    });
+  }
   return v;
 }
 
@@ -1169,7 +1225,10 @@ export function createAudio({ load = null, onChange = () => {} } = {}) {
     const recorded = load && RECORDED.has(id) && !(performance.now() - (failed.get(id) ?? -Infinity) < RETRY_MS);
     if (!recorded) return buildSound(ctx, id, dest, { t0 });
     const ready = decoded.get(id)?.settled;
-    if (ready) return buildRecording(ctx, id, ready, dest, { t0 });
+    if (ready) {
+      loadEvents(ctx, id, ready); // any one-shots missed last time
+      return buildRecording(ctx, id, ready, dest, { t0 });
+    }
     const turn = {}; // this pick of the sound: its voices carry it
     const standIn = new Voice(ctx, dest, t0);
     standIn.loading = true;
@@ -1180,7 +1239,7 @@ export function createAudio({ load = null, onChange = () => {} } = {}) {
       if (live.get(id) === standIn) replace(id, turn, synth, true);
     }, SYNTH_AFTER_MS);
     recording(id).then(
-      (buffer) => { clearTimeout(filler); replace(id, turn, (g, t) => buildRecording(ctx, id, buffer, g, { t0: t })); },
+      (rec) => { clearTimeout(filler); replace(id, turn, (g, t) => buildRecording(ctx, id, rec, g, { t0: t })); },
       () => {
         clearTimeout(filler);
         if (ctx === c) failed.set(id, performance.now());
@@ -1191,7 +1250,9 @@ export function createAudio({ load = null, onChange = () => {} } = {}) {
     );
     return standIn;
   }
-  // The decoded recording, fetched and decoded once per context.
+  // The decoded recording ({ buffer, events }), fetched and decoded once per
+  // context. Its event one-shots are fetched after it, one by one, and fill
+  // in `events` as they come; one that fails is just left out.
   function recording(id) {
     let p = decoded.get(id);
     if (!p) {
@@ -1200,15 +1261,39 @@ export function createAudio({ load = null, onChange = () => {} } = {}) {
         .then(() => load(id))
         .then((bytes) => c.decodeAudioData(bytes))
         .then((buffer) => {
-          p.settled = buffer;
+          const rec = { buffer, events: { chimes: [], announcements: [] } };
+          p.settled = rec;
           // Dropped from the mix while it loaded: don't hold it (see forget()).
           if (!live.has(id) && decoded.get(id) === p) decoded.delete(id);
-          return buffer;
+          else loadEvents(c, id, rec);
+          return rec;
         });
       p.catch(() => { if (decoded.get(id) === p) decoded.delete(id); });
       decoded.set(id, p);
     }
     return p;
+  }
+  // Fetches the one-shots `rec` doesn't have yet. A failed download most
+  // likely means no network: the rest aren't queued ahead of other sounds'
+  // downloads, and are tried again the next time the sound is picked.
+  async function loadEvents(c, id, rec) {
+    const ev = RECORDING_EVENTS[id];
+    if (!ev || rec.fetching) return;
+    rec.fetching = true;
+    try {
+      for (const kind of ['chimes', 'announcements']) {
+        for (const [i, file] of ev[kind].entries()) {
+          if (rec.events[kind][i]) continue;
+          // stop once the recording's been let go (or the engine disposed)
+          if (ctx !== c || decoded.get(id)?.settled !== rec) return;
+          let bytes;
+          try { bytes = await load(file); } catch { return; }
+          try { rec.events[kind][i] = await c.decodeAudioData(bytes); } catch {}
+        }
+      }
+    } finally {
+      rec.fetching = false;
+    }
   }
   // Swaps the sound's voice of this pick (`turn`) for a new one, crossfading,
   // and reusing its level gain. Nothing happens if the sound was dropped (or

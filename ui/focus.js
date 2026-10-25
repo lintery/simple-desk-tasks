@@ -37,7 +37,7 @@ const store = {
   },
 };
 
-// Rain, nature, fan and train play their recordings (downloaded the first
+// Rain, nature, fan, train and plane play their recordings (downloaded the first
 // time); the tile shows the wait.
 const audio = createAudio({ load: (id) => api.soundRecording(id), onChange: () => renderSound() });
 let timer = null;
