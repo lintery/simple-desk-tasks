@@ -1,4 +1,4 @@
-//! Updates from GitHub releases. A newer release's DeskTasks.exe is downloaded,
+//! Updates from GitHub releases. A newer release's exe is downloaded,
 //! its minisign signature checked against the key built into the app, and put
 //! in place of the running exe (which Windows lets us rename); the app then
 //! restarts into it. Releases are made with tools/release.ps1.
@@ -40,7 +40,11 @@ use windows::{
 };
 
 const RELEASES: &str = "https://api.github.com/repos/lintery/simple-desk-widgets/releases/latest";
-const ASSET: &str = "DeskTasks.exe";
+const ASSET: &str = "SimpleDeskWidgets.exe";
+/// The exe's name before the rename. A copy installed under it keeps it (it
+/// updates in place), and releases carry the exe under this name as well, for
+/// copies older than the rename.
+const OLD_ASSET: &str = "DeskTasks.exe";
 const PUBLIC_KEY: &str = include_str!("../updater.pub");
 const AFTER_UPDATE: &str = "--after-update";
 const FIRST_CHECK: Duration = Duration::from_secs(120);
@@ -51,10 +55,21 @@ const RETRY_INSTALL: Duration = Duration::from_secs(60);
 const TRIAL: Duration = Duration::from_secs(20);
 const API_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-/// Next to the exe: the version on trial and its process id.
-const TRIAL_FILE: &str = "DeskTasks.trial";
-/// Next to the exe: a version that was rolled back and isn't installed again.
-const SKIP_FILE: &str = "DeskTasks.skip";
+// Next to the exe, named after it (SimpleDeskWidgets.trial and so on):
+/// the version on trial and its process id;
+const TRIAL_FILE: &str = ".trial";
+/// a version that was rolled back and isn't installed again;
+const SKIP_FILE: &str = ".skip";
+/// the download, the version it replaced, and a version rolled back.
+const NEW_EXE: &str = ".new.exe";
+const OLD_EXE: &str = ".old.exe";
+const BAD_EXE: &str = ".bad.exe";
+
+/// `exe`'s companion file: its name without ".exe", then `suffix`.
+fn beside(exe: &Path, suffix: &str) -> PathBuf {
+    let stem = exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    exe.with_file_name(format!("{stem}{suffix}"))
+}
 
 #[derive(Serialize, Clone, Default, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -76,7 +91,7 @@ static READY: Mutex<Option<Ready>> = Mutex::new(None);
 #[derive(Clone)]
 struct Ready {
     version: String,
-    /// DeskTasks.new.exe next to the exe.
+    /// SimpleDeskWidgets.new.exe next to the exe.
     file: PathBuf,
     /// Its signature, checked again right before the swap.
     sig: Vec<u8>,
@@ -93,10 +108,12 @@ fn set_status(app: &AppHandle, state: &str, latest: Option<String>, message: Opt
     status
 }
 
-/// The installed copy (DeskTasks.exe) updates itself; a dev build doesn't.
-fn installed_exe() -> Option<PathBuf> {
+/// The installed copy (SimpleDeskWidgets.exe, or DeskTasks.exe from before
+/// the rename) updates itself; a dev build doesn't.
+pub fn installed_exe() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    exe.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(ASSET)).then_some(exe)
+    let name = exe.file_name()?.to_string_lossy().into_owned();
+    [ASSET, OLD_ASSET].iter().any(|a| name.eq_ignore_ascii_case(a)).then_some(exe)
 }
 
 /// `a` is a newer version than `b` ("1.10.0" > "1.9.2"; a leading "v" is ignored).
@@ -125,13 +142,16 @@ fn latest() -> Result<(String, String, String), String> {
         json["assets"].as_array().into_iter().flatten().find(|a| a["name"] == name).and_then(|a| a["browser_download_url"].as_str())
             .map(str::to_string)
     };
-    let exe = link(ASSET).ok_or(INCOMPLETE)?;
-    let sig = link(&format!("{ASSET}.minisig")).ok_or(INCOMPLETE)?;
-    Ok((tag, exe, sig))
+    // The exe and its signature under one name, the new one first.
+    [ASSET, OLD_ASSET]
+        .iter()
+        .find_map(|name| Some((link(name)?, link(&format!("{name}.minisig"))?)))
+        .map(|(exe, sig)| (tag, exe, sig))
+        .ok_or_else(|| INCOMPLETE.to_string())
 }
 
 /// The exe is what the release key signed; returns the signature's trusted
-/// comment ("file:DeskTasks.exe version:1.2.0").
+/// comment ("file:SimpleDeskWidgets.exe version:1.2.0").
 fn verify(exe: &[u8], sig: &[u8]) -> Result<String, String> {
     let key = PublicKey::from_base64(PUBLIC_KEY.trim()).map_err(|_| BAD_SIGNATURE)?;
     let sig = std::str::from_utf8(sig).ok().and_then(|s| Signature::decode(s).ok()).ok_or(BAD_SIGNATURE)?;
@@ -146,7 +166,7 @@ fn signed_version(comment: &str) -> Option<&str> {
 }
 
 fn skipped(exe: &Path) -> Option<String> {
-    fs::read_to_string(exe.with_file_name(SKIP_FILE)).ok().map(|s| s.trim().to_string())
+    fs::read_to_string(beside(exe, SKIP_FILE)).ok().map(|s| s.trim().to_string())
 }
 
 /// Looks for a newer release and, if there is one, downloads and verifies it
@@ -185,7 +205,7 @@ pub fn check(app: &AppHandle) -> Status {
         if version != tag || !newer(&version, &current_version()) {
             return Err(BAD_SIGNATURE.into());
         }
-        let file = exe.with_file_name("DeskTasks.new.exe");
+        let file = beside(&exe, NEW_EXE);
         let write = || -> std::io::Result<()> {
             let mut f = fs::File::create(&file)?;
             f.write_all(&bytes)?;
@@ -219,8 +239,8 @@ fn swap_and_restart(app: &AppHandle, ready: &Ready) -> Result<(), String> {
     // The file sat on disk since the download: check it once more.
     let bytes = fs::read(&ready.file).map_err(|e| errors::file(&e, NOT_INSTALLED))?;
     verify(&bytes, &ready.sig)?;
-    let old = exe.with_file_name("DeskTasks.old.exe");
-    let trial = exe.with_file_name(TRIAL_FILE);
+    let old = beside(&exe, OLD_EXE);
+    let trial = beside(&exe, TRIAL_FILE);
     let _ = fs::remove_file(&old);
     fs::rename(&exe, &old).map_err(|e| errors::file(&e, NOT_INSTALLED))?;
     // Back to the running version; if even that fails, say so — the app wouldn't start next time.
@@ -228,7 +248,10 @@ fn swap_and_restart(app: &AppHandle, ready: &Ready) -> Result<(), String> {
         let _ = fs::remove_file(&trial);
         match fs::rename(&old, &exe) {
             Ok(()) => why,
-            Err(_) => format!("{why}. Прежнюю версию не удалось вернуть на место — запустите DeskTasks.old.exe из папки программы"),
+            Err(_) => format!(
+                "{why}. Прежнюю версию не удалось вернуть на место — запустите {} из папки программы",
+                old.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            ),
         }
     };
     if let Err(e) = fs::rename(&ready.file, &exe) {
@@ -254,7 +277,7 @@ fn swap_and_restart(app: &AppHandle, ready: &Ready) -> Result<(), String> {
     Ok(())
 }
 
-/// DeskTasks.trial: the version on trial, the process running it, and how
+/// SimpleDeskWidgets.trial: the version on trial, the process running it, and how
 /// many starts didn't get as far as confirming it.
 #[derive(Debug, PartialEq)]
 struct Trial {
@@ -302,6 +325,13 @@ fn runs(pid: u32, exe: &Path) -> bool {
     }
 }
 
+/// Started by `install`: the process of the version this one replaced.
+pub fn replaced_pid() -> Option<u32> {
+    let args: Vec<String> = std::env::args().collect();
+    let at = args.iter().position(|a| a == AFTER_UPDATE)?;
+    args.get(at + 1)?.parse().ok()
+}
+
 /// First thing in `main`, before the single-instance check.
 ///
 /// Started by `install`: waits for the old process to quit (the check would
@@ -311,7 +341,7 @@ fn runs(pid: u32, exe: &Path) -> bool {
 /// back in place, that version is skipped, and the app restarts.
 pub fn startup() -> Option<String> {
     let exe = installed_exe()?;
-    let path = exe.with_file_name(TRIAL_FILE);
+    let path = beside(&exe, TRIAL_FILE);
     let args: Vec<String> = std::env::args().collect();
     if let Some(at) = args.iter().position(|a| a == AFTER_UPDATE) {
         if let Some(pid) = args.get(at + 1).and_then(|p| p.parse::<u32>().ok()) {
@@ -331,7 +361,7 @@ pub fn startup() -> Option<String> {
         return version;
     }
     let mut trial = Trial::load(&path)?;
-    let old = exe.with_file_name("DeskTasks.old.exe");
+    let old = beside(&exe, OLD_EXE);
     // Not the version on trial any more (installed by hand), or nothing to go back to.
     if trial.version != current_version() || !old.exists() {
         let _ = fs::remove_file(&path);
@@ -347,11 +377,11 @@ pub fn startup() -> Option<String> {
         let _ = trial.save(&path);
         return None;
     }
-    let bad = exe.with_file_name("DeskTasks.bad.exe");
+    let bad = beside(&exe, BAD_EXE);
     let _ = fs::remove_file(&bad);
     if fs::rename(&exe, &bad).is_ok() {
         if fs::rename(&old, &exe).is_ok() {
-            let _ = fs::write(exe.with_file_name(SKIP_FILE), &trial.version);
+            let _ = fs::write(beside(&exe, SKIP_FILE), &trial.version);
             let _ = fs::remove_file(&path);
             if Command::new(&exe).spawn().is_ok() {
                 std::process::exit(0);
@@ -367,15 +397,15 @@ pub fn startup() -> Option<String> {
 /// After setup (`confirm`) and on a clean quit.
 pub fn keep() {
     let Some(exe) = installed_exe() else { return };
-    let path = exe.with_file_name(TRIAL_FILE);
+    let path = beside(&exe, TRIAL_FILE);
     if let Some(trial) = Trial::load(&path) {
         if trial.version != current_version() {
             return;
         }
         let _ = fs::remove_file(&path);
     }
-    let _ = fs::remove_file(exe.with_file_name("DeskTasks.bad.exe"));
-    let old = exe.with_file_name("DeskTasks.old.exe");
+    let _ = fs::remove_file(beside(&exe, BAD_EXE));
+    let old = beside(&exe, OLD_EXE);
     for _ in 0..20 {
         if fs::remove_file(&old).is_ok() || !old.exists() {
             break;
@@ -495,5 +525,14 @@ mod tests {
         assert_eq!(signed_version("file:DeskTasks.exe version:1.2.0"), Some("1.2.0"));
         assert_eq!(signed_version("version:v2.0 file:DeskTasks.exe"), Some("2.0"));
         assert_eq!(signed_version("file:DeskTasks.exe"), None);
+    }
+
+    #[test]
+    fn companions_are_named_after_the_exe() {
+        let dir = Path::new(r"C:\Programs\X");
+        assert_eq!(beside(&dir.join("SimpleDeskWidgets.exe"), NEW_EXE), dir.join("SimpleDeskWidgets.new.exe"));
+        // A copy from before the rename keeps the names the old version used.
+        assert_eq!(beside(&dir.join("DeskTasks.exe"), TRIAL_FILE), dir.join("DeskTasks.trial"));
+        assert_eq!(beside(&dir.join("DeskTasks.exe"), OLD_EXE), dir.join("DeskTasks.old.exe"));
     }
 }

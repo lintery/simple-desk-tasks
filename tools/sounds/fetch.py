@@ -13,7 +13,7 @@ for sid, s in sources.items():
     if dest.exists() and dest.stat().st_size > 0:
         print(f"{sid}: have {dest.stat().st_size} bytes")
         continue
-    req = urllib.request.Request(s["url"], headers={"User-Agent": "SimpleDeskTasks-sound-prep"})
+    req = urllib.request.Request(s["url"], headers={"User-Agent": "SimpleDeskWidgets-sound-prep"})
     part = dest.with_suffix(".part")  # an interrupted download isn't taken for a finished one
     with urllib.request.urlopen(req, timeout=120) as r, open(part, "wb") as f:
         f.write(r.read())

@@ -32,9 +32,12 @@ use windows::{
 use windows_future::{AsyncStatus, IAsyncOperation, IAsyncOperationWithProgress};
 use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
-pub const APP_ID: &str = "DeskTasks.Widgets";
+pub const APP_ID: &str = "SimpleDeskWidgets.App";
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const RUN_VALUE: &str = "DeskTasks";
+const RUN_VALUE: &str = "SimpleDeskWidgets";
+// Under the old name (Desk Tasks): cleaned up.
+const OLD_APP_ID: &str = "DeskTasks.Widgets";
+const OLD_RUN_VALUE: &str = "DeskTasks";
 
 fn hwnd(win: &WebviewWindow) -> Option<HWND> {
     match win.window_handle().ok()?.as_raw() {
@@ -116,19 +119,17 @@ pub fn register_toast_app(data_dir: &Path) {
         let _ = key.set_value("DisplayName", &"Simple Desk Widgets");
         let _ = key.set_value("IconUri", &icon.to_string_lossy().to_string());
     }
+    let _ = hkcu.delete_subkey_all(format!(r"Software\Classes\AppUserModelId\{OLD_APP_ID}"));
 }
 
 /// Starts the app with Windows, or stops doing so. Only the installed copy
-/// (`DeskTasks.exe`, see tools/install.ps1) touches it; raw build output
-/// (`desk-tasks.exe`) never does.
+/// (`SimpleDeskWidgets.exe`, see tools/install.ps1) touches it; raw build
+/// output (`simple-desk-widgets.exe`) never does.
 pub fn set_autostart(on: bool) {
-    let Ok(path) = std::env::current_exe() else { return };
-    let installed = path.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("DeskTasks.exe"));
-    if !installed {
-        return;
-    }
+    let Some(path) = crate::updater::installed_exe() else { return };
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let Ok((key, _)) = hkcu.create_subkey(RUN_KEY) else { return };
+    let _ = key.delete_value(OLD_RUN_VALUE);
     if on {
         let _ = key.set_value(RUN_VALUE, &format!("\"{}\"", path.to_string_lossy()));
     } else {

@@ -44,7 +44,9 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 const REMIND_MS: i64 = 5 * 60_000;
 const NS: &str = "xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav' xmlns:a='http://apple.com/ns/ical/'";
 /// Where the secret of an account is kept: this, then its id.
-const CREDENTIAL_PREFIX: &str = "SimpleDeskTasks/calendar/";
+const CREDENTIAL_PREFIX: &str = "SimpleDeskWidgets/calendar/";
+/// The same before the rename to Simple Desk Widgets.
+const OLD_CREDENTIAL_PREFIX: &str = "SimpleDeskTasks/calendar/";
 /// Where the one Mail.ru password was kept before there were several accounts.
 const LEGACY_CREDENTIAL: &str = "SimpleDeskTasks/calendar.mail.ru";
 /// The calendar of a link account (it holds just one).
@@ -261,14 +263,34 @@ fn load_secret(account: &CalendarAccount) -> Option<String> {
     if let Some(secret) = read_secret(&target(&account.id)) {
         return Some(secret);
     }
-    if account.id != LEGACY_ACCOUNT {
+    // Kept under an older name: copied to the current one. The old copy stays
+    // for a version from before (after a rollback); disconnecting removes all.
+    let secret = match read_secret(&old_target(&account.id)) {
+        Some(secret) => secret,
+        None if account.id == LEGACY_ACCOUNT => read_secret(LEGACY_CREDENTIAL)?,
+        None => return None,
+    };
+    let _ = write_secret(&target(&account.id), &account.label, &secret);
+    // Disconnected meanwhile: don't leave the copy behind.
+    if !settings::get().calendar_accounts.iter().any(|a| a.id == account.id) {
+        delete_secrets(&account.id);
         return None;
     }
-    let secret = read_secret(LEGACY_CREDENTIAL)?;
-    if write_secret(&target(&account.id), &account.label, &secret).is_ok() {
+    Some(secret)
+}
+
+/// Where an account's secret was before the rename.
+fn old_target(id: &str) -> String {
+    format!("{OLD_CREDENTIAL_PREFIX}{id}")
+}
+
+/// Every place the account's secret may be kept.
+fn delete_secrets(id: &str) {
+    delete_secret(&target(id));
+    delete_secret(&old_target(id));
+    if id == LEGACY_ACCOUNT {
         delete_secret(LEGACY_CREDENTIAL);
     }
-    Some(secret)
 }
 
 // ---------- CalDAV ----------
@@ -815,9 +837,11 @@ fn connect(app: &AppHandle, r: Connect) -> Result<CalendarAccount, String> {
     }
     // Disconnected while the secret was being written: don't leave it behind.
     if !settings::get().calendar_accounts.iter().any(|a| a.id == id) {
-        delete_secret(&target(&id));
+        delete_secrets(&id);
         return Err(GONE.into());
     }
+    // The older copies are out of date now.
+    delete_secret(&old_target(&id));
     if id == LEGACY_ACCOUNT {
         delete_secret(LEGACY_CREDENTIAL);
     }
@@ -833,10 +857,7 @@ const GONE: &str = "Этот календарь уже отключён — по
 pub fn calendar_disconnect(app: AppHandle, account: String) -> Result<(), String> {
     // Settings first: if they can't be saved, the account keeps its secret.
     let accounts = settings::update(&app, |s| s.calendar_accounts.retain(|a| a.id != account))?.calendar_accounts;
-    delete_secret(&target(&account));
-    if account == LEGACY_ACCOUNT {
-        delete_secret(LEGACY_CREDENTIAL);
-    }
+    delete_secrets(&account);
     // A sync still running must not bring it back; the others sync again.
     publish(&app, new_generation(), |st| {
         st.by_calendar.retain(|(id, _), _| *id != account);

@@ -1,7 +1,7 @@
 //! Release signing for the in-app updater.
 //!
-//!   desk-tasks-signer keygen <secret-key-file> <public-key-file>
-//!   desk-tasks-signer sign <secret-key-file> <file> <version>   → writes <file>.minisig
+//!   simple-desk-widgets-signer keygen <secret-key-file> <public-key-file>
+//!   simple-desk-widgets-signer sign <secret-key-file> <file> <version>   → writes <file>.minisig
 //!
 //! The secret key stays on the release machine (outside the repo); the public
 //! key is compiled into the app (src-tauri/updater.pub).
@@ -49,7 +49,7 @@ fn main() -> ExitCode {
     let result = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["keygen", secret, public] => keygen(Path::new(secret), Path::new(public)),
         ["sign", secret, file, version] => sign(Path::new(secret), Path::new(file), version),
-        _ => Err("usage: desk-tasks-signer keygen <secret> <public> | sign <secret> <file> <version>".into()),
+        _ => Err("usage: simple-desk-widgets-signer keygen <secret> <public> | sign <secret> <file> <version>".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

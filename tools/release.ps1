@@ -2,7 +2,7 @@
 #   pwsh -File tools/release.ps1            # asks before publishing
 #   pwsh -File tools/release.ps1 -DryRun    # build and sign only
 # The version comes from src-tauri/Cargo.toml; bump it there first.
-# Signing key: %USERPROFILE%\.simple-desk-tasks\updater.key (made once with
+# Signing key: %USERPROFILE%\.simple-desk-widgets\updater.key (made once with
 #   tools/signer keygen; its public half is src-tauri/updater.pub).
 param([switch]$DryRun)
 $ErrorActionPreference = 'Stop'
@@ -11,7 +11,7 @@ Set-Location $root
 
 $version = (Select-String -Path src-tauri\Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
 $tag = "v$version"
-$key = Join-Path $env:USERPROFILE '.simple-desk-tasks\updater.key'
+$key = Join-Path $env:USERPROFILE '.simple-desk-widgets\updater.key'
 if (-not (Test-Path $key)) { throw "Signing key not found: $key" }
 if (git status --porcelain) { throw 'Commit or stash your changes first: the release is built from HEAD.' }
 if (git tag --list $tag) { throw "Tag $tag already exists; bump the version in src-tauri/Cargo.toml." }
@@ -22,27 +22,35 @@ if (-not $DryRun) {
 }
 
 Write-Host "Building $tag..."
-$env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA 'desk-tasks-build'
+$env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA 'simple-desk-widgets-build'
 cargo build --release --locked --manifest-path src-tauri/Cargo.toml
 if ($LASTEXITCODE) { throw 'Build failed.' }
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
-Copy-Item (Join-Path $env:CARGO_TARGET_DIR 'release\desk-tasks.exe') (Join-Path $dist 'DeskTasks.exe') -Force
+# The same exe under the old name too: copies installed before the rename
+# (DeskTasks.exe) look for that one.
+$names = 'SimpleDeskWidgets.exe', 'DeskTasks.exe'
+foreach ($name in $names) {
+    Copy-Item (Join-Path $env:CARGO_TARGET_DIR 'release\simple-desk-widgets.exe') (Join-Path $dist $name) -Force
+}
 
 Write-Host 'Signing...'
-$env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA 'desk-tasks-signer'
+$env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA 'simple-desk-widgets-signer'
 cargo build --release --manifest-path tools/signer/Cargo.toml
 if ($LASTEXITCODE) { throw 'Signer build failed.' }
-& (Join-Path $env:CARGO_TARGET_DIR 'release\desk-tasks-signer.exe') sign $key (Join-Path $dist 'DeskTasks.exe') $version
-if ($LASTEXITCODE) { throw 'Signing failed.' }
+foreach ($name in $names) {
+    & (Join-Path $env:CARGO_TARGET_DIR 'release\simple-desk-widgets-signer.exe') sign $key (Join-Path $dist $name) $version
+    if ($LASTEXITCODE) { throw 'Signing failed.' }
+}
 
-$exe = Get-Item (Join-Path $dist 'DeskTasks.exe')
-Write-Host ("Ready: {0} ({1:N1} MB) + signature" -f $exe.FullName, ($exe.Length / 1MB))
+$exe = Get-Item (Join-Path $dist $names[0])
+Write-Host ("Ready: {0} ({1:N1} MB) + signature, and the same as {2}" -f $exe.FullName, ($exe.Length / 1MB), $names[1])
 if ($DryRun) { return }
 
 $answer = Read-Host "Publish $tag on GitHub (public, installed copies will update to it)? [y/N]"
 if ($answer -notmatch '^(y|yes|д|да)$') { Write-Host 'Not published.'; return }
-gh release create $tag (Join-Path $dist 'DeskTasks.exe') (Join-Path $dist 'DeskTasks.exe.minisig') --title $tag --generate-notes --target (git rev-parse HEAD)
+$assets = $names | ForEach-Object { (Join-Path $dist $_), (Join-Path $dist "$_.minisig") }
+gh release create $tag @assets --title $tag --generate-notes --target (git rev-parse HEAD)
 if ($LASTEXITCODE) { throw 'Publishing failed.' }
 git fetch --tags --quiet
 Write-Host "Published $tag."

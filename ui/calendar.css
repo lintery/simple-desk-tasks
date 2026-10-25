@@ -65,14 +65,20 @@
   box-shadow:inset 0 0 0 1px rgba(142,159,255,.32),inset 0 1px 0 rgba(255,255,255,.05)}
 .ev.next .ev-t b{color:var(--ac-txt);font-weight:600}
 .ev.next .ev-ttl{font-weight:600}
-.ev-act{display:flex;align-items:center;gap:8px;margin-top:8px}
+/* one line: in a narrow column the button by the countdown keeps only its icon (below) */
+.ev-act{display:flex;align-items:center;gap:8px;margin-top:8px;min-width:0;container-type:inline-size}
 .cd{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ac-txt);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cd::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ac);box-shadow:0 0 0 3px var(--ac-soft);animation:beat 2s ease-in-out infinite}
 @keyframes beat{50%{box-shadow:0 0 0 5px rgba(142,159,255,.06)}}
-.join{margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px 0 9px;border-radius:var(--r-chip);
+.join{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px 0 9px;border-radius:var(--r-chip);
   font-size:12px;font-weight:600;color:var(--ink);background:var(--ac);box-shadow:0 4px 12px -4px var(--ac-line);transition:transform var(--d1) var(--e-out)}
 .join:active{transform:scale(.96)}
 .join .i{width:13px;height:13px;stroke-width:1.6}
+/* only beside the countdown: alone (a meeting going on) the label fits */
+@container (max-width:250px){
+  .cd ~ .join{width:30px;padding:0;justify-content:center}
+  .cd ~ .join span{display:none}
+}
 .ev.now .ev-act{margin-top:6px}
 /* the small one on other meetings with a link */
 .join.sm{flex:none;align-self:center;width:28px;height:28px;padding:0;justify-content:center;color:var(--t2);background:rgba(255,255,255,.07);

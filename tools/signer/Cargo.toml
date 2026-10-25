@@ -1,8 +1,8 @@
 [package]
-name = "desk-tasks-signer"
+name = "simple-desk-widgets-signer"
 version = "0.1.0"
 edition = "2021"
-description = "Signs release builds of Simple Desk Tasks for the in-app updater (see tools/release.ps1)."
+description = "Signs release builds of Simple Desk Widgets for the in-app updater (see tools/release.ps1)."
 publish = false
 
 [dependencies]

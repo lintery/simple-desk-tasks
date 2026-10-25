@@ -109,9 +109,9 @@
 
 ## Установка
 
-**Готовая версия:** скачайте `DeskTasks.exe` из
+**Готовая версия:** скачайте `SimpleDeskWidgets.exe` из
 [последнего релиза](https://github.com/lintery/simple-desk-widgets/releases/latest),
-положите, например, в `%LOCALAPPDATA%\Programs\DeskTasks` и запустите. Автозапуск
+положите, например, в `%LOCALAPPDATA%\Programs\SimpleDeskWidgets` и запустите. Автозапуск
 с Windows приложение включит само, дальше обновляется само.
 
 **Из исходников:** нужны [Rust](https://rustup.rs) 1.87+ и WebView2 (в Windows 10/11 уже есть).
@@ -120,14 +120,19 @@
 pwsh -File tools/install.ps1
 ```
 
-Скрипт собирает release, кладёт `DeskTasks.exe` в `%LOCALAPPDATA%\Programs\DeskTasks`,
-создаёт ярлык «Задачи» в меню Пуск и запускает приложение.
+Скрипт собирает release, кладёт `SimpleDeskWidgets.exe` в
+`%LOCALAPPDATA%\Programs\SimpleDeskWidgets`, создаёт ярлык «Simple Desk Widgets» в меню Пуск
+и запускает приложение.
 
-**Данные:** `%APPDATA%\app.desktasks.widgets\` — `tasks.json` (задачи), `settings.json`,
+**Данные:** `%APPDATA%\app.simpledeskwidgets\` — `tasks.json` (задачи), `settings.json`,
 `focus.json` — обычный JSON.
 
+**Переход со старого названия (Desk Tasks):** при первом запуске приложение само переносит
+папки данных, пароли календарей, автозапуск и папку бэкапа по умолчанию на новое имя.
+Копия, установленная как `DeskTasks.exe`, продолжает обновляться под старым именем.
+
 **Бэкап:** после каждого изменения копия уходит в папку из настроек (по умолчанию
-`D:\backups\simple-desk-tasks`) как `tasks-ГГГГ-ММ-ДД.json`: один файл на день с последним
+`D:\backups\simple-desk-widgets`) как `tasks-ГГГГ-ММ-ДД.json`: один файл на день с последним
 состоянием за этот день, хранятся последние 30 дней.
 
 - Если снимок дня не совпадает с тем, с чем стартовало приложение, первое изменение
@@ -152,7 +157,7 @@ cargo test --manifest-path src-tauri/Cargo.toml     # таймер, бэкап, 
 
 **Релиз:** поднимите версию в `src-tauri/Cargo.toml`, закоммитьте и запустите
 `pwsh -File tools/release.ps1` — он соберёт exe, подпишет его ключом из
-`%USERPROFILE%\.simple-desk-tasks\updater.key` и после подтверждения опубликует релиз
+`%USERPROFILE%\.simple-desk-widgets\updater.key` и после подтверждения опубликует релиз
 на GitHub. Установленные копии подхватят его сами.
 
 ## Устройство

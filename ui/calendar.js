@@ -38,6 +38,8 @@ const span = (ms) => {
   const h = Math.floor(m / 60), r = m % 60;
   return r ? `${h} ч ${r} мин` : `${h} ч`;
 };
+/** Time to the next meeting: minutes matter only within a few hours. */
+const ahead = (ms) => (ms >= 3 * 60 * MIN ? `${Math.round(ms / (60 * MIN))} ч` : span(ms));
 
 /** Sets markup only when it changes: the agenda redraws every 15 s, and a
  * button replaced under a pressed mouse («Подключиться») swallows the click. */
@@ -136,12 +138,15 @@ function eventHtml(m, now, nextId) {
   // The live and the next meeting get a full «Подключиться»; any other one
   // with a link a small button at the end of its row (ended ones don't).
   const prominent = live || m.id === nextId;
-  const join = m.link && prominent ? `<button class="join" data-link="${esc(m.link)}"><svg class="i"><use href="#i-vid"/></svg>Подключиться</button>` : '';
+  // In a narrow column the label goes and the icon stays (calendar.css).
+  const join = m.link && prominent
+    ? `<button class="join" data-link="${esc(m.link)}" title="Подключиться · ${esc(service(m.link))}"><svg class="i"><use href="#i-vid"/></svg><span>Подключиться</span></button>`
+    : '';
   const ended = m.end <= now;
   const quick = m.link && !prominent && !ended
     ? `<button class="join sm" data-link="${esc(m.link)}" title="Подключиться · ${esc(service(m.link))}"><svg class="i"><use href="#i-vid"/></svg></button>`
     : '';
-  if (m.id === nextId && !live) extra += `<div class="ev-act"><span class="cd">через ${span(m.start - now)}</span>${join}</div>`;
+  if (m.id === nextId && !live) extra += `<div class="ev-act"><span class="cd">через ${ahead(m.start - now)}</span>${join}</div>`;
   else if (join) extra += `<div class="ev-act">${join}</div>`;
   return `<div class="${cls.join(' ')}" style="--c:${esc(m.color || 'var(--ac)')}" title="${esc(m.title)}">${time}<div class="ev-c"></div>` +
     `<div class="ev-b"><div class="ev-ttl">${esc(m.title)}</div><div class="ev-m">${meta}</div>${extra}</div>${quick}</div>`;

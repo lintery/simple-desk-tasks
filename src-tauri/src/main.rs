@@ -10,6 +10,7 @@ mod ical;
 mod layout;
 mod media;
 mod notify;
+mod rename;
 mod selection;
 mod net;
 mod settings;
@@ -79,6 +80,8 @@ fn main() {
     // Before the single-instance check: the version we replaced may still be
     // closing, or a new version may have failed to start and needs rolling back.
     let updated_to = updater::startup();
+    // The old version is gone by now: its data can be copied over.
+    rename::data_folders();
     desktop::set_app_id();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| layout::place_all(app)))
@@ -133,6 +136,12 @@ fn main() {
             std::fs::create_dir_all(&data_dir)?;
             // First: the store (backup folder) and the timer (durations) read them.
             settings::load(data_dir.join("settings.json"));
+            if !settings::locked() {
+                let dir = settings::get().backup_dir;
+                if let Some(dir) = rename::backup_folder(&dir, settings::OLD_BACKUP_DIR, settings::DEFAULT_BACKUP_DIR) {
+                    let _ = settings::update(handle, |s| s.backup_dir = dir);
+                }
+            }
             app.manage(store::Store::load(data_dir.join("tasks.json")));
             app.manage(layout::Layout::load(data_dir.join("layout.json")));
             app.manage(focus::Focus::load(data_dir.join("focus.json")));
@@ -190,7 +199,7 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Desk Tasks");
+        .expect("error while running Simple Desk Widgets");
 }
 
 fn create_widget(app: &AppHandle, label: &str, title: &str) -> tauri::Result<()> {

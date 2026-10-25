@@ -691,26 +691,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "desk-tasks"
-version = "1.1.0"
-dependencies = [
- "chrono",
- "minisign-verify",
- "raw-window-handle",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-single-instance",
- "tauri-winrt-notification",
- "windows",
- "windows-future",
- "winreg 0.55.0",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3042,6 +3022,26 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
+name = "simple-desk-widgets"
+version = "1.1.0"
+dependencies = [
+ "chrono",
+ "minisign-verify",
+ "raw-window-handle",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-single-instance",
+ "tauri-winrt-notification",
+ "windows",
+ "windows-future",
+ "winreg 0.55.0",
+]
 
 [[package]]
 name = "siphasher"

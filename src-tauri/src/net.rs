@@ -11,7 +11,7 @@ pub fn get(url: &str, timeout: Duration, site: &str) -> Result<Vec<u8>, String> 
     let fetch = || -> windows::core::Result<Vec<u8>> {
         let client = HttpClient::new()?;
         let headers = client.DefaultRequestHeaders()?;
-        headers.UserAgent()?.TryParseAdd(&HSTRING::from("SimpleDeskTasks"))?;
+        headers.UserAgent()?.TryParseAdd(&HSTRING::from("SimpleDeskWidgets"))?;
         headers.TryAppendWithoutValidation(&HSTRING::from("Accept"), &HSTRING::from("application/vnd.github+json, */*"))?;
         let buffer = finish(client.GetBufferAsync(&Uri::CreateUri(&HSTRING::from(url))?)?, timeout)?;
         let mut bytes = vec![0u8; buffer.Length()? as usize];

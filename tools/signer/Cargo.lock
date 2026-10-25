@@ -59,13 +59,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd9f3db6f2cfef61c10613071955154ffdc9e515daebff26de4b54e35038fdd"
 
 [[package]]
-name = "desk-tasks-signer"
-version = "0.1.0"
-dependencies = [
- "minisign",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -241,6 +234,13 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "simple-desk-widgets-signer"
+version = "0.1.0"
+dependencies = [
+ "minisign",
 ]
 
 [[package]]

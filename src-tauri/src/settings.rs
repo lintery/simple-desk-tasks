@@ -11,7 +11,9 @@ use std::{
 };
 use tauri::{AppHandle, Emitter};
 
-pub const DEFAULT_BACKUP_DIR: &str = r"D:\backups\simple-desk-tasks";
+pub const DEFAULT_BACKUP_DIR: &str = r"D:\backups\simple-desk-widgets";
+/// The default before the rename (see rename.rs).
+pub const OLD_BACKUP_DIR: &str = r"D:\backups\simple-desk-tasks";
 const NOT_SAVED: &str = "Настройки не сохранены";
 /// Calendars of the account that aren't meetings and are left out: Mail.ru's
 /// holidays and «what happened on this day» feed.
