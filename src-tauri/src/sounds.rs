@@ -14,7 +14,7 @@ use std::{
 use tauri::{ipc::Response, AppHandle, Manager};
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 
-const BASE: &str = "https://github.com/lintery/simple-desk-tasks/releases/download/sounds-v1/";
+const BASE: &str = "https://github.com/lintery/simple-desk-widgets/releases/download/sounds-v1/";
 const TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A file of the release, `<name>.opus`, by name (as ui/lib/sounds.js asks

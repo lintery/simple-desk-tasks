@@ -2,7 +2,7 @@
 
 Дождь, природа, вентилятор и поезд в виджете «Фокус» играют полевые записи с
 [Freesound](https://freesound.org), все под CC0. Здесь лежит то, из чего сделаны петли
-в релизе [`sounds-v1`](https://github.com/lintery/simple-desk-tasks/releases/tag/sounds-v1).
+в релизе [`sounds-v1`](https://github.com/lintery/simple-desk-widgets/releases/tag/sounds-v1).
 Кто что записал — в [CREDITS.md](CREDITS.md).
 
 ```powershell

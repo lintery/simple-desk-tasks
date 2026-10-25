@@ -1,6 +1,6 @@
 <div align="center">
 
-# Simple Desk Tasks
+# Simple Desk Widgets
 
 **Задачи прямо на рабочем столе Windows — всегда на виду, без лишних окон.**
 
@@ -108,7 +108,7 @@
 ## Установка
 
 **Готовая версия:** скачайте `DeskTasks.exe` из
-[последнего релиза](https://github.com/lintery/simple-desk-tasks/releases/latest),
+[последнего релиза](https://github.com/lintery/simple-desk-widgets/releases/latest),
 положите, например, в `%LOCALAPPDATA%\Programs\DeskTasks` и запустите. Автозапуск
 с Windows приложение включит само, дальше обновляется само.
 

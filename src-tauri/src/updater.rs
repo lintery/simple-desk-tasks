@@ -39,7 +39,7 @@ use windows::{
     },
 };
 
-const RELEASES: &str = "https://api.github.com/repos/lintery/simple-desk-tasks/releases/latest";
+const RELEASES: &str = "https://api.github.com/repos/lintery/simple-desk-widgets/releases/latest";
 const ASSET: &str = "DeskTasks.exe";
 const PUBLIC_KEY: &str = include_str!("../updater.pub");
 const AFTER_UPDATE: &str = "--after-update";
