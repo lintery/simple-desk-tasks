@@ -33,6 +33,9 @@ let editingId = null;
 /** Set while tasks.json can't be read: shown instead of a misleading empty list. */
 let storeError = null;
 let renderPending = false;
+/** A mouse button is held on the list: a re-render now would pull the pressed
+ *  row out from under the cursor, and the click it ends with would be lost. */
+let pressing = false;
 let snack = null;
 let lastMinute = '';
 
@@ -174,7 +177,7 @@ function visibleTasks() {
 }
 
 function render() {
-  if (editingId) {
+  if (editingId || pressing) {
     renderPending = true;
     return;
   }
@@ -446,6 +449,9 @@ function allTomorrow() {
 // ---------------------------------------------------------------- inline edit
 
 function startEdit(id) {
+  // Clicking another row's text ends the current edit on mousedown; its
+  // re-render waited for this click (see `pressing`) and must land first.
+  if (renderPending && !editingId) render();
   const t = find(id);
   const row = rowCache.get(id)?.el;
   if (!t || !row || ghosts.has(id) || editingId) return;
@@ -826,6 +832,19 @@ listEl.addEventListener('click', (e) => {
     default:
   }
 });
+
+listEl.addEventListener('pointerdown', () => { pressing = true; });
+const release = () => {
+  if (!pressing) return;
+  pressing = false;
+  // In a later task, after the click this release produces.
+  if (renderPending) setTimeout(() => { if (renderPending) render(); });
+};
+// pointercancel and dragstart: a row drag started; blur: Alt+Tab or focus
+// stolen mid-press. A move with no button held catches any release we missed.
+for (const type of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(type, release);
+listEl.addEventListener('dragstart', release);
+window.addEventListener('pointermove', (e) => { if (pressing && !e.buttons) release(); });
 
 snkEl.addEventListener('click', (e) => {
   if (e.target.closest('[data-act="undo"]')) undoSnack();
