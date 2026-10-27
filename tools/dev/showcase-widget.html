@@ -106,9 +106,29 @@ Object.defineProperty(HTMLImageElement.prototype, 'src', {
   set(v) { src.set.call(this, String(v).startsWith('http://wall.localhost/') ? 'demo-wallpaper.svg' : v); },
 });
 const later = (fn) => new Promise((ok) => setTimeout(() => ok(fn()), 0));
+// Changes to tasks are kept and sent back as `tasks-changed`, as the store
+// does, so the page can be clicked through (adding, ticking, flags, subtasks).
+const listeners = new Map();
+const emit = (event, payload) => setTimeout(() => (listeners.get(event) ?? []).forEach((cb) => cb({ payload })), 30);
+const changeTasks = (cmd, args) => {
+  if (cmd === 'add_task') {
+    tasks.push({ id: `n${++seq}`, title: args.title, due: args.due, time: args.time, repeat: args.repeat, important: args.important,
+      done: false, doneAt: null, created: Date.now(), subtasks: [] });
+  } else if (cmd === 'update_task') {
+    const t = tasks.find((x) => x.id === args.id);
+    if (t) Object.assign(t, args.patch, 'done' in args.patch ? { doneAt: args.patch.done ? Date.now() : null } : {});
+  } else if (cmd === 'delete_task') {
+    const i = tasks.findIndex((x) => x.id === args.id);
+    if (i >= 0) return tasks.splice(i, 1)[0];
+  } else if (cmd === 'restore_task') {
+    tasks.push(args.task);
+  } else return undefined;
+  emit('tasks-changed', structuredClone(tasks));
+  return null;
+};
 window.__TAURI__ = {
   core: {
-    invoke: (cmd) => later(() => ({
+    invoke: (cmd, args) => later(() => changeTasks(cmd, args) ?? ({
       get_tasks: structuredClone(tasks),
       get_backdrop: backdrop,
       hotkey_label: 'Alt+N',
@@ -125,7 +145,12 @@ window.__TAURI__ = {
       app_version: '1.1.0',
     })[cmd] ?? null),
   },
-  event: { listen: async () => () => {} },
+  event: {
+    listen: async (event, cb) => {
+      listeners.set(event, [...(listeners.get(event) ?? []), cb]);
+      return () => {};
+    },
+  },
   webviewWindow: {
     getCurrentWebviewWindow: () => ({ label, listen: async () => () => {}, setFocus: async () => {} }),
   },

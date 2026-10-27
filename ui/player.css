@@ -51,7 +51,6 @@
 .pl-ctl .ib:disabled{opacity:.35;pointer-events:none}
 .pl-pp{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:var(--ink);background:var(--t1);
   box-shadow:0 4px 12px -4px rgba(0,0,0,.6);transition:transform var(--d1) var(--e-out)}
-.pl-pp:active{transform:scale(.92)}
 .pl-pp .i{width:14px;height:14px}
 .pl-vol{display:flex;align-items:center;gap:4px}
 .pl-vol .ib{width:24px;height:24px;color:var(--t3)}

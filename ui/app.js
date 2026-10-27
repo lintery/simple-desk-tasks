@@ -4,10 +4,11 @@ import './lib/theme.js';
 import { api, focusSelf, label, listenAll, listenMine } from './lib/api.js';
 import { initBackdrop } from './lib/backdrop.js';
 import { addDays, dayLabel, daysBetween, fromDateStr, isoWeekday, plural, toDateStr, WEEKDAYS_SHORT } from './lib/dates.js';
-import { I, chipHtml, esc } from './lib/icons.js';
+import { I, esc, renderChips } from './lib/icons.js';
 import { datePicker } from './lib/datepicker.js';
 import { trackScrollbar } from './lib/edges.js';
 import { attachHilite } from './lib/hilite.js';
+import { glide, positions, replay, unfold } from './lib/motion.js';
 import {
   bucketOf, clock, isOverdue, nextOccurrence, nodateView, orderKey, overdueLabel, repeatLabel, subtaskProgress,
   todayView, upcomingView,
@@ -84,6 +85,8 @@ function finalChips(p, due) {
 
 /** Tasks whose checklist is open under the row. */
 const openSubs = new Set();
+/** …and those whose checklist is folding away right now. */
+const closingSubs = new Set();
 /** Text typed into a checklist's «add» field, kept across re-renders. */
 const subDraft = new Map();
 /** The task whose «add subtask» field has the keyboard (refocused after a re-render). */
@@ -95,7 +98,7 @@ function progressHtml(t) {
   if (!p) return '';
   const all = p.done === p.total ? ' all' : '';
   return `<button class="sp${all}" data-act="subs" title="${openSubs.has(t.id) ? 'Свернуть подзадачи' : 'Подзадачи'}">`
-    + `${I.list}${p.done}/${p.total}</button>`;
+    + `${I.list}<span class="sp-n">${p.done}</span>/${p.total}</button>`;
 }
 
 function metaHtml(t, c, opts) {
@@ -120,7 +123,7 @@ function metaHtml(t, c, opts) {
 
 /** The open checklist: items, each with its own check and ×, and a field to add one. */
 function subsHtml(t) {
-  if (!openSubs.has(t.id)) return '';
+  if (!openSubs.has(t.id) || closingSubs.has(t.id)) return '';
   const items = (t.subtasks ?? []).map((s) => `<div class="sub${s.done ? ' done static' : ''}" data-sid="${esc(s.id)}">`
     + `<button class="cb" data-act="sub-check" title="${s.done ? 'Вернуть' : 'Выполнить'}">${I.tick}</button>`
     + `<span class="st">${titleHtml(s.title)}</span>`
@@ -270,13 +273,56 @@ function render() {
   }
   for (const id of [...rowCache.keys()]) if (!used.has(id)) rowCache.delete(id);
   for (const id of [...openSubs]) if (!used.has(id)) openSubs.delete(id); // moved to another widget or gone
+  const rowKey = (el) => el.dataset.id;
+  const before = positions(listEl.querySelectorAll('.row'), rowKey);
   listEl.replaceChildren(...nodes);
+  animateRows(before, rowKey, all);
   // A rebuilt row brings a new «add subtask» field: the keyboard goes back to it.
   const field = subFocus && rowCache.get(subFocus)?.el.querySelector('.sub-in');
   if (field && document.activeElement !== field && document.hasFocus()) {
     field.focus();
     field.setSelectionRange(field.value.length, field.value.length);
   }
+}
+
+// ---------------------------------------------------------------- motion
+// Only what changed moves: a task that turned up, rows that changed places,
+// a ticked subtask, a new flag, a task back from «Отменить».
+
+/** Tasks shown here so far (null until the list has loaded: nothing is «new» then). */
+let seen = null;
+/** The task list has come from the store (before that, the list is just empty). */
+let loaded = false;
+/** The next render shouldn't slide rows (a checklist folding moves them itself). */
+let noGlide = false;
+/** The day's progress as last drawn, % (the shine runs when it reaches 100). */
+let lastPct = 100;
+/** Per task: done subtasks and the flag, as last shown. */
+const shown = new Map();
+/** Tasks to flash once they're back (after «Отменить»). */
+const flashIds = new Set();
+
+function animateRows(before, rowKey, all) {
+  const rows = [...listEl.querySelectorAll('.row')];
+  if (seen) {
+    for (const el of rows) {
+      const id = rowKey(el);
+      if (!seen.has(id)) replay(el, 'enter');
+      if (flashIds.delete(id)) replay(el, 'arrived');
+      const t = all.find((x) => x.id === id);
+      const was = shown.get(id);
+      if (t && was) {
+        const done = subtaskProgress(t)?.done ?? 0;
+        if (done !== was.done) replay(el.querySelector('.sp-n'), done > was.done ? 'up' : 'down');
+        if (t.important && !was.important) replay(el.querySelector('.flag'), 'wig');
+      }
+    }
+    if (!noGlide) glide(before, rows.filter((el) => seen.has(rowKey(el))), rowKey);
+  }
+  noGlide = false;
+  if (loaded) seen = new Set(rows.map(rowKey));
+  shown.clear();
+  for (const t of all) shown.set(t.id, { done: subtaskProgress(t)?.done ?? 0, important: !!t.important });
 }
 
 function emptyNode(text) {
@@ -317,7 +363,13 @@ function renderHeader(c, v) {
     const total = done + left + late;
     const prog = $('prog');
     prog.hidden = false;
-    prog.firstElementChild.style.width = total ? `${(done / total) * 100}%` : '0';
+    const pct = total ? (done / total) * 100 : 0;
+    prog.firstElementChild.style.width = `${pct}%`;
+    // The day just got done: a shine runs along the bar, once.
+    if (loaded) {
+      if (pct === 100 && lastPct < 100) replay(prog, 'full');
+      lastPct = pct;
+    }
   } else {
     $('sub').textContent = KIND === 'nodate' ? 'когда-нибудь' : 'впереди';
     $('cnt').innerHTML = `<span>${v.count}</span>`;
@@ -375,6 +427,12 @@ function undoSnack() {
   const s = snack;
   snack = null;
   snkEl.hidden = true;
+  // The row lights up once it's back — if it comes back here, and soon.
+  if (s.id) {
+    const id = s.id;
+    flashIds.add(id);
+    setTimeout(() => flashIds.delete(id), 1500);
+  }
   s.undo();
 }
 
@@ -541,12 +599,12 @@ function startEdit(id) {
 
   input.addEventListener('input', () => {
     if (input.value.trim() === t.title) {
-      chips.innerHTML = ''; // unchanged text is saved as is, nothing re-parsed
+      renderChips(chips, []); // unchanged text is saved as is, nothing re-parsed
       return;
     }
     const p = parse(input.value, new Date(), t.due);
     const patch = p.chips.length ? parsedPatch(p, t) : {};
-    chips.innerHTML = finalChips(p, 'due' in patch ? patch.due : t.due).map(chipHtml).join('');
+    renderChips(chips, finalChips(p, 'due' in patch ? patch.due : t.due));
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); finish(true); }
@@ -572,8 +630,12 @@ function placePop(anchor) {
   if (!popEl.isConnected) document.body.append(popEl);
   const r = anchor instanceof Element ? anchor.getBoundingClientRect() : anchor;
   const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
-  popEl.style.left = `${Math.max(6, Math.min(r.right - pw, innerWidth - pw - 6))}px`;
-  popEl.style.top = `${r.bottom + ph + 6 > innerHeight ? Math.max(6, r.top - ph - 4) : r.bottom + 4}px`;
+  const left = Math.max(6, Math.min(r.right - pw, innerWidth - pw - 6));
+  const top = r.bottom + ph + 6 > innerHeight ? Math.max(6, r.top - ph - 4) : r.bottom + 4;
+  popEl.style.left = `${left}px`;
+  popEl.style.top = `${top}px`;
+  // It opens out of the button it came from.
+  popEl.style.transformOrigin = `${r.left + r.width / 2 - left}px ${r.top + r.height / 2 - top}px`;
 }
 
 /** «⋯»: flag the task as important, open its checklist. */
@@ -601,15 +663,28 @@ function openMoreMenu(id, anchor) {
 function toggleSubs(id, focusField = false) {
   const t = find(id);
   if (!t) return;
+  if (closingSubs.has(id)) return; // folding right now: that click is the one that counts
   if (openSubs.has(id)) {
-    openSubs.delete(id);
     if (subFocus === id) subFocus = null;
-  } else {
-    openSubs.add(id);
-    if (focusField || !t.subtasks?.length) subFocus = id;
+    // Folds away first, then the row is drawn without it. A row rebuilt
+    // meanwhile comes without it at once (see subsHtml), not open again.
+    closingSubs.add(id);
+    const subs = rowCache.get(id)?.el.querySelector('.subs');
+    unfold(subs, false).then(() => {
+      closingSubs.delete(id);
+      openSubs.delete(id);
+      rowCache.delete(id);
+      noGlide = true; // the rows below have already moved with the fold
+      render();
+    });
+    return;
   }
+  openSubs.add(id);
+  if (focusField || !t.subtasks?.length) subFocus = id;
   rowCache.delete(id);
+  noGlide = true; // the unfolding moves the rows below by itself
   render();
+  unfold(rowCache.get(id)?.el.querySelector('.subs'), true);
 }
 
 const newSubId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -705,16 +780,19 @@ function draft() {
 
 function renderDraft() {
   hilite();
-  $('add-go').classList.toggle('ready', !!addInput.value.trim());
+  // The arrow lights up (with a hop) once there's something to add.
+  const ready = !!addInput.value.trim();
+  const go = $('add-go');
+  if (ready && !go.classList.contains('ready')) replay(go, 'hop');
+  go.classList.toggle('ready', ready);
   const d = draft();
   const show = d && (d.chips.length || d.dest !== KIND);
   addEl.classList.toggle('parsed-on', !!show);
   if (!show) {
-    parsedEl.innerHTML = '';
+    renderChips(parsedEl, []);
     return;
   }
-  parsedEl.innerHTML = d.chips.map(chipHtml).join('')
-    + (d.dest !== KIND ? `<span class="dest">${I.arrow}${TITLES[d.dest]}</span>` : '');
+  renderChips(parsedEl, d.chips, d.dest !== KIND ? `<span class="dest">${I.arrow}${TITLES[d.dest]}</span>` : '');
 }
 
 let adding = false;
@@ -740,6 +818,7 @@ function submitDraft() {
   adding = true;
   api.add(d)
     .then(() => {
+      replay($('add-go'), 'fly', 'go-fly'); // the arrow (inside the button) sends it off
       addInput.value = '';
       renderDraft();
     })
@@ -1058,6 +1137,9 @@ document.addEventListener('contextmenu', (e) => {
 let heardTasks = false, heardStatus = false;
 listenAll('tasks-changed', (list) => {
   heardTasks = true;
+  // While tasks.json can't be read, the list isn't the real one yet: when it
+  // comes, its tasks aren't «new».
+  if (!storeError) loaded = true;
   tasks = withPending(list);
   render();
 });
@@ -1076,6 +1158,7 @@ api.movable().then(setMovable).catch(() => {});
 listenAll('store-status', (error) => {
   heardStatus = true;
   storeError = error;
+  if (!storeError) loaded = true; // the real list has just come (no row is «new»)
   render();
 });
 
@@ -1089,5 +1172,6 @@ trackScrollbar(listEl);
 Promise.all([api.tasks(), api.storeStatus()]).then(([list, error]) => {
   if (!heardTasks) tasks = list;
   if (!heardStatus) storeError = error;
+  if (!storeError) loaded = true;
   render();
 });

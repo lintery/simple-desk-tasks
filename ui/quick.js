@@ -3,7 +3,8 @@
 import './lib/theme.js';
 import { api, listenMine } from './lib/api.js';
 import { attachHilite } from './lib/hilite.js';
-import { I, chipHtml, esc } from './lib/icons.js';
+import { I, esc, renderChips } from './lib/icons.js';
+import { replay } from './lib/motion.js';
 import { bucketOf, clock } from './lib/model.js';
 import { parse } from './lib/nlp.js';
 
@@ -25,7 +26,7 @@ function draft() {
 function renderDraft() {
   hilite();
   const d = draft();
-  chipsEl.innerHTML = (d?.chips ?? []).map(chipHtml).join('');
+  renderChips(chipsEl, d?.chips ?? []);
   destEl.innerHTML = `${I.arrow}<b>${TITLES[d?.dest ?? 'nodate']}</b>`;
 }
 
@@ -59,6 +60,11 @@ input.addEventListener('keydown', async (e) => {
   adding = true;
   try {
     await api.add(d);
+    // Added: the tile turns into a tick for a moment (seen with Shift+Enter).
+    const tile = document.getElementById('tile');
+    tile.innerHTML = I.check;
+    replay(tile, 'ok');
+    setTimeout(() => { tile.innerHTML = I.plus; }, 700);
     reset();
     if (!e.shiftKey) api.hideQuick();
   } catch (err) {
@@ -74,6 +80,7 @@ input.addEventListener('keydown', async (e) => {
  * slow app replaces it only if nothing's been typed since. */
 let opened = null;
 listenMine('quick-open', (selected) => {
+  replay(document.querySelector('.qa'), 'open'); // springs open each time it's shown
   if (selected) input.value = selected;
   opened = input.value;
   renderDraft();

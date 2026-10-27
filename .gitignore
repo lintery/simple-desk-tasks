@@ -11,3 +11,6 @@ node_modules/
 /dist/
 
 /tools/signer/target/
+
+# Local notes (tech log), not part of the repo
+*.local.md

@@ -71,7 +71,6 @@
 @keyframes beat{50%{box-shadow:0 0 0 5px rgba(var(--ac-rgb),.06)}}
 .join{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px 0 9px;border-radius:var(--r-chip);
   font-size:12px;font-weight:600;color:var(--ink);background:var(--ac);box-shadow:0 4px 12px -4px var(--ac-line);transition:transform var(--d1) var(--e-out)}
-.join:active{transform:scale(.96)}
 .join .i{width:13px;height:13px;stroke-width:1.6}
 /* only beside the countdown and «to task» (26px + gap): alone (a meeting
    going on) the label fits */

@@ -4,7 +4,7 @@
 
 import { addDays, dayLabel, fromDateStr, isoWeekday, toDateStr } from './dates.js';
 import { attachHilite } from './hilite.js';
-import { I, chipHtml, esc } from './icons.js';
+import { I, esc, renderChips } from './icons.js';
 import { clock, step } from './model.js';
 import { parse } from './nlp.js';
 import { REPEAT_KINDS, onlyWeekday, parseTime, patchOf, toggleWeekday, withDate, withRepeat, withTime } from './schedule.js';
@@ -208,7 +208,7 @@ export function datePicker(task, on) {
   text.addEventListener('input', () => {
     hilite();
     const p = text.value.trim() ? parseWhen(text.value, s.due) : null;
-    $('.dp-prev').innerHTML = p?.chips.length ? p.chips.map(chipHtml).join('') + '<kbd>↵</kbd>' : '';
+    renderChips($('.dp-prev'), p?.chips ?? [], p?.chips.length ? '<kbd>↵</kbd>' : '');
   });
 
   render();

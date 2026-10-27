@@ -81,8 +81,15 @@ body.movable .w{border-color:var(--ac-line)}
 .cnt{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
 .odb{display:inline-flex;align-items:center;gap:5px;color:var(--od);font-weight:600}
 .odb::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--od);box-shadow:0 0 0 3px var(--od-soft)}
-.prog{position:absolute;left:20px;right:16px;bottom:0;height:1px;background:var(--line);pointer-events:none}
-.prog i{display:block;height:100%;width:0;background:var(--ac);border-radius:1px;transition:width .4s var(--e-out)}
+.prog{position:absolute;left:20px;right:16px;bottom:0;height:1px;background:var(--line);pointer-events:none;overflow:hidden}
+/* fills with a little spring; at 100% it swells once and a shine runs along it */
+.prog i{position:relative;display:block;height:100%;width:0;background:var(--ac);border-radius:1px;transition:width .55s var(--e-spring)}
+.prog.full{animation:prog-swell 900ms var(--e-out)}
+.prog.full i::after{content:"";position:absolute;top:0;bottom:0;left:-48px;width:48px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.95),transparent);animation:prog-shine 900ms var(--e-out) forwards}
+@keyframes prog-swell{25%{transform:scaleY(3)}}
+/* a 1px-high glint: moving it by `left` costs next to nothing */
+@keyframes prog-shine{to{left:100%}}
 
 /* ---------- list & rows ---------- */
 .list{position:relative;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 6px 8px;display:flex;flex-direction:column;
@@ -160,6 +167,9 @@ body.movable .w{border-color:var(--ac-line)}
 .hl-layer>span{display:block;flex:none}
 .hl-layer mark{color:transparent;border-radius:3px;background:var(--ac-soft);box-shadow:0 0 0 2px var(--ac-soft)}
 .hl-layer mark.important{background:var(--imp-soft);box-shadow:0 0 0 2px var(--imp-soft)}
+/* a part just understood lights up gently (the ones already there stay put) */
+.hl-layer mark.in{animation:hl-in 260ms var(--e-out)}
+@keyframes hl-in{from{background:transparent;box-shadow:0 0 0 2px transparent}}
 .chip.important{color:var(--imp);background:var(--imp-soft)}
 /* Hover actions float over the row's right edge: nothing reflows, so long
    titles don't re-wrap and rows below don't jump. The text fades out under them. */
@@ -184,6 +194,18 @@ body.movable .w{border-color:var(--ac-line)}
 @keyframes gone{to{height:0;min-height:0;padding-top:0;padding-bottom:0;opacity:0}}
 .arrived{animation:arrived 600ms var(--e-out)}
 @keyframes arrived{from{background:var(--ac-soft)}}
+/* a task that turned up here: slides in from just above, lit for a moment */
+.row.enter{animation:enter 460ms var(--e-out)}
+@keyframes enter{0%{opacity:0;transform:translateY(-6px);background:var(--ac-soft)}45%{opacity:1;transform:none;background:var(--ac-soft)}}
+/* «2/5»: the number rolls like an odometer */
+.sp-n{display:inline-block}
+.sp-n.up{animation:odo-up 260ms var(--e-out)}
+.sp-n.down{animation:odo-down 260ms var(--e-out)}
+@keyframes odo-up{from{opacity:0;transform:translateY(70%)}}
+@keyframes odo-down{from{opacity:0;transform:translateY(-70%)}}
+/* the flag, just raised, flutters */
+.flag.wig{transform-origin:20% 90%;animation:wig 520ms var(--e-out)}
+@keyframes wig{20%{transform:rotate(-14deg)}40%{transform:rotate(10deg)}60%{transform:rotate(-6deg)}80%{transform:rotate(3deg)}}
 
 /* editing */
 .row.editing{flex-wrap:wrap;background:var(--raise);box-shadow:inset 0 0 0 1px var(--ac-line)}
@@ -194,10 +216,11 @@ body.movable .w{border-color:var(--ac-line)}
 
 /* chips, kbd */
 .chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:var(--r-chip);
-  font-size:11.5px;font-weight:500;color:var(--ac);background:var(--ac-soft);white-space:nowrap;font-variant-numeric:tabular-nums;
-  animation:chip 160ms var(--e-spring)}
+  font-size:11.5px;font-weight:500;color:var(--ac);background:var(--ac-soft);white-space:nowrap;font-variant-numeric:tabular-nums}
 .chip .i{width:12px;height:12px}
-@keyframes chip{from{opacity:0;transform:scale(.92)}}
+/* a chip just understood pops in (one after another: --d), the rest stay still while typing */
+.chip.in{animation:chip 220ms var(--e-spring) both;animation-delay:var(--d,0ms)}
+@keyframes chip{from{opacity:0;transform:scale(.88) translateY(3px)}}
 kbd{font:600 10px/16px var(--font);min-width:16px;padding:0 4px;text-align:center;border-radius:4px;color:var(--t3);
   background:rgba(var(--fg),.04);box-shadow:inset 0 0 0 1px var(--line),inset 0 -1px 0 rgba(var(--fg),.06)}
 
@@ -240,10 +263,12 @@ a.url:hover{text-decoration-color:var(--ac)}
 /* drag & drop */
 .row[draggable="true"]{cursor:grab}
 .row[draggable="true"] .tx{cursor:text}
-.row.dragging{opacity:.35}
+/* the row being dragged stays behind, sunk a little; the drop line opens out */
+.row.dragging{opacity:.35;transform:scale(.97);transition:opacity var(--d2),transform var(--d2) var(--e-out)}
 body.drop-on .w{border-color:var(--ac-line);box-shadow:inset 0 0 0 1px var(--ac-line)}
 .drop-line{position:absolute;left:10px;right:10px;height:2px;margin-top:-1px;border-radius:1px;background:var(--ac);
-  box-shadow:0 0 6px var(--ac-line);pointer-events:none}
+  box-shadow:0 0 6px var(--ac-line);pointer-events:none;animation:drop-in 180ms var(--e-out)}
+@keyframes drop-in{from{opacity:0;transform:scaleX(.3)}}
 .gh.drop-target b{color:var(--ac)}
 .gh.drop-target i{background:var(--ac-line)}
 
@@ -279,7 +304,10 @@ body.drop-on .w{border-color:var(--ac-line);box-shadow:inset 0 0 0 1px var(--ac-
 .add-go:hover{color:var(--t1);background:var(--raise-2)}
 .add-go.ready{color:var(--ink);background:var(--ac);box-shadow:0 4px 12px -4px var(--ac-line)}
 .add-go.ready:hover{color:var(--ink);background:var(--ac);filter:brightness(1.08)}
-.add-go:active{transform:scale(.92)}
+.add-go.hop{animation:go-hop 340ms var(--e-spring)}
+@keyframes go-hop{40%{transform:translateY(-3px) scale(1.08)}}
+.add-go.fly .i{animation:go-fly 420ms var(--e-out)}
+@keyframes go-fly{45%{opacity:0;transform:translateX(10px)}46%{opacity:0;transform:translateX(-10px)}}
 .add.on{background:rgba(var(--fg),.025)}
 .add.on .plus{border-color:var(--ac);color:var(--ac)}
 .add.parsed-on{padding-bottom:10px}
@@ -290,7 +318,11 @@ body.drop-on .w{border-color:var(--ac-line);box-shadow:inset 0 0 0 1px var(--ac-
 
 /* date popover */
 .pop{position:fixed;z-index:20;min-width:200px;padding:4px;border-radius:8px;background:var(--surface-2);
-  box-shadow:0 0 0 1px rgba(var(--fg),.09),0 12px 32px rgba(0,0,0,calc(.55 * var(--sh)));animation:rise 140ms var(--e-out)}
+  box-shadow:0 0 0 1px rgba(var(--fg),.09),0 12px 32px rgba(0,0,0,calc(.55 * var(--sh)));animation:pop-in 170ms var(--e-out)}
+/* grows out of the button it came from (transform-origin set by placePop) */
+@keyframes pop-in{from{opacity:0;transform:scale(.92)}}
+/* every button gives under the finger a little (the `scale` property: their own transforms stay) */
+button:not(.cb):not(:disabled):active{scale:.95}
 /* label on the left (after its icon, if any), hint pushed to the right */
 .pop button{display:flex;align-items:center;gap:10px;width:100%;height:28px;padding:0 10px;border-radius:5px;font-size:12.5px;text-align:left}
 .pop button>span{margin-left:auto;padding-left:6px}

@@ -2,8 +2,13 @@
 body{padding:20px;user-select:none}
 .qa{border-radius:var(--r-win);background:var(--surface-2);border:1px solid rgba(var(--fg),.1);overflow:hidden;
   box-shadow:inset 0 1px 0 rgba(var(--fg),.07),0 14px 30px -8px rgba(0,0,0,calc(.75 * var(--sh))),0 3px 10px rgba(0,0,0,calc(.45 * var(--sh)));
-  animation:qa-in 140ms var(--e-out)}
-@keyframes qa-in{from{opacity:0;transform:scale(.98)}}
+}
+/* each time it's called up (quick.js puts `open` on, then takes it off) */
+.qa.open{animation:qa-in 220ms var(--e-spring)}
+@keyframes qa-in{from{opacity:0;transform:scale(.96) translateY(4px)}}
+/* added: the tile becomes a tick, with a pop */
+.tile.ok{color:var(--ink);background:var(--ac);animation:tile-ok 420ms var(--e-spring)}
+@keyframes tile-ok{30%{transform:scale(1.18)}}
 .qa-in{display:flex;align-items:center;gap:14px;padding:16px 22px 12px 18px}
 .qa-in input{flex:1;height:30px;font:400 20px/28px var(--font-d);letter-spacing:-.005em;caret-color:var(--ac)}
 .tile{width:26px;height:26px;flex:none;border-radius:7px;display:grid;place-items:center;background:var(--ac-soft);color:var(--ac)}

@@ -29,16 +29,23 @@ export function attachHilite(input, spansOf) {
     const style = getComputedStyle(input);
     for (const prop of ['font', 'letterSpacing', 'paddingLeft', 'paddingRight']) layer.style[prop] = style[prop];
   };
+  /** The marks shown a moment ago (kind and words): only a new one lights up. */
+  let marked = new Set();
   const update = () => {
     copyStyle();
     const value = input.value;
     let out = '';
     let last = 0;
+    const now = new Set();
     for (const [s, e, kind] of spansOf(value) ?? []) {
       if (s < last || e > value.length) continue;
-      out += esc(value.slice(last, s)) + `<mark class="${esc(kind)}">${esc(value.slice(s, e))}</mark>`;
+      const key = `${kind}|${value.slice(s, e)}`;
+      now.add(key);
+      const fresh = marked.has(key) ? '' : ' in';
+      out += esc(value.slice(last, s)) + `<mark class="${esc(kind)}${fresh}">${esc(value.slice(s, e))}</mark>`;
       last = e;
     }
+    marked = now;
     out += esc(value.slice(last));
     if (out !== html) {
       html = out;

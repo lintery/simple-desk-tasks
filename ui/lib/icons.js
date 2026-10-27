@@ -19,11 +19,23 @@ export const I = {
   tick: '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.2 5.3 4.2 7.2 7.9 3.1"/></svg>',
 };
 
-/** A chip of what the parser understood («завтра», «15:00», «каждый пн», «важное»). */
-export const chipHtml = (chip) => {
+/** A chip of what the parser understood («завтра», «15:00», «каждый пн», «важное»).
+ *  `order` ≥ 0: it's new and pops in, that many steps after the first new one. */
+export const chipHtml = (chip, order = -1) => {
   const icon = { date: I.cal, time: I.clock, repeat: I.rep, important: I.flag }[chip.kind] ?? '';
-  return `<span class="chip ${chip.kind}">${icon}${esc(chip.label)}</span>`;
+  const fresh = order >= 0 ? ` in" style="--d:${order * 40}ms` : '';
+  return `<span class="chip ${chip.kind}${fresh}">${icon}${esc(chip.label)}</span>`;
 };
+
+/** Puts chips into `el` (then `extra`); only those it didn't show a moment ago
+ *  pop in, so typing doesn't make them all flicker. */
+export function renderChips(el, chips, extra = '') {
+  const before = new Set(el.__chips ?? []);
+  const keys = chips.map((ch) => `${ch.kind}|${ch.label}`);
+  let n = 0;
+  el.innerHTML = chips.map((ch, i) => chipHtml(ch, before.has(keys[i]) ? -1 : n++)).join('') + extra;
+  el.__chips = keys;
+}
 
 export const esc = (s) =>
   String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
