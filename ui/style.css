@@ -58,6 +58,11 @@ body.movable .w{border-color:var(--ac-line)}
 .row:hover{background:var(--raise)}
 .cb{flex:none;position:relative;width:16px;height:16px;margin-top:1px;border-radius:50%;border:1.5px solid var(--t4);
   display:grid;place-items:center;transition:border-color var(--d1),background var(--d2) var(--e-out)}
+/* Invisible hit area, 34×28: from 2px off the row's left edge to 4px short of
+   the text (inset counts from inside the 1.5px border). Vertically it stays
+   inside a 32px row even at pop's peak (~1.14 with the spring's overshoot), so
+   it never catches clicks meant for the row above. */
+.cb::before{content:"";position:absolute;inset:-7.5px -7.5px -7.5px -13.5px}
 .row:hover .cb{border-color:var(--t2)}
 .cb svg{width:10px;height:10px;fill:none;stroke:#101014;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9;stroke-dashoffset:9}
 .done .cb{background:var(--ac);border-color:var(--ac)!important}
