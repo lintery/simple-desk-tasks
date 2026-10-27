@@ -77,7 +77,7 @@ impl Modes {
 }
 
 /// A calendar of an account: a CalDAV collection, or the one an .ics link holds.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CalendarRef {
     pub url: String,
@@ -85,6 +85,30 @@ pub struct CalendarRef {
     /// `#rrggbb`, or empty.
     pub color: String,
     pub enabled: bool,
+    /// Minutes before a meeting its reminder comes; 0 = none (one of REMIND_CHOICES).
+    pub remind: u32,
+}
+
+/// The themes, the first is the default.
+pub const THEMES: [&str; 3] = ["system", "dark", "light"];
+
+/// The theme the windows are in now: the chosen one, or Windows' app mode.
+pub fn light_theme() -> bool {
+    match get().theme.as_str() {
+        "light" => true,
+        "dark" => false,
+        _ => crate::desktop::system_light(),
+    }
+}
+
+/// What a calendar's reminder can be set to, in minutes (0 = no reminder).
+pub const REMIND_CHOICES: [u32; 6] = [0, 1, 5, 10, 15, 30];
+pub const DEFAULT_REMIND: u32 = 5;
+
+impl Default for CalendarRef {
+    fn default() -> Self {
+        CalendarRef { url: String::new(), name: String::new(), color: String::new(), enabled: false, remind: DEFAULT_REMIND }
+    }
 }
 
 /// A connected calendar account: CalDAV with an app password (Mail.ru,
@@ -117,6 +141,8 @@ pub struct Settings {
     pub backup_dir: String,
     pub autostart: bool,
     pub auto_update: bool,
+    /// "system" (as Windows' app mode) | "dark" | "light".
+    pub theme: String,
     pub calendar_accounts: Vec<CalendarAccount>,
     /// Before several accounts: the one Mail.ru login and its calendars. Read
     /// once and moved into calendar_accounts (see sanitize).
@@ -134,6 +160,7 @@ impl Default for Settings {
             backup_dir: DEFAULT_BACKUP_DIR.to_string(),
             autostart: true,
             auto_update: true,
+            theme: THEMES[0].to_string(),
             calendar_accounts: Vec::new(),
             calendar_email: String::new(),
             calendars: Vec::new(),
@@ -162,6 +189,14 @@ impl Settings {
         self.calendar_accounts.retain(|a| !a.id.is_empty() && seen.insert(a.id.clone()));
         for account in &mut self.calendar_accounts {
             account.calendars.retain(|c| !hidden_calendar(&c.name));
+            for cal in &mut account.calendars {
+                if !REMIND_CHOICES.contains(&cal.remind) {
+                    cal.remind = DEFAULT_REMIND;
+                }
+            }
+        }
+        if !THEMES.contains(&self.theme.as_str()) {
+            self.theme = THEMES[0].to_string();
         }
         self.backup_dir = self.backup_dir.trim().to_string();
         if self.backup_dir.is_empty() {
@@ -258,8 +293,8 @@ fn save(state: &State, value: &Settings) -> Result<(), String> {
 
 /// What the settings window sends, applied over `current`. Calendar accounts
 /// are the calendar's to change (connect / disconnect), so a page that hasn't
-/// heard of a change yet can't undo it: only the on/off switches of calendars
-/// the accounts still have are taken from it.
+/// heard of a change yet can't undo it: only the on/off switches and the
+/// reminders of calendars the accounts still have are taken from it.
 fn merge(current: &Settings, page: Settings) -> Settings {
     let calendar_accounts = current
         .calendar_accounts
@@ -270,11 +305,9 @@ fn merge(current: &Settings, page: Settings) -> Settings {
                 calendars: a
                     .calendars
                     .iter()
-                    .map(|c| CalendarRef {
-                        enabled: theirs
-                            .and_then(|p| p.calendars.iter().find(|pc| pc.url == c.url))
-                            .map_or(c.enabled, |pc| pc.enabled),
-                        ..c.clone()
+                    .map(|c| match theirs.and_then(|p| p.calendars.iter().find(|pc| pc.url == c.url)) {
+                        Some(pc) => CalendarRef { enabled: pc.enabled, remind: pc.remind, ..c.clone() },
+                        None => c.clone(),
                     })
                     .collect(),
                 ..a.clone()
@@ -375,6 +408,26 @@ mod tests {
         };
         s.sanitize();
         assert_eq!(s.calendar_accounts[0].calendars, vec![cal("Основной")]);
+    }
+
+    #[test]
+    fn reminders_and_theme_are_checked_and_kept() {
+        // Old settings: no reminder, no theme — the defaults.
+        let mut s: Settings = serde_json::from_str(r#"{"calendarAccounts":[{"id":"x","calendars":[{"url":"a","name":"A"}]}]}"#).unwrap();
+        s.sanitize();
+        assert_eq!(s.calendar_accounts[0].calendars[0].remind, DEFAULT_REMIND);
+        assert_eq!(s.theme, "system");
+        // Not one of the choices: back to the defaults.
+        s.calendar_accounts[0].calendars[0].remind = 7;
+        s.theme = "purple".into();
+        s.sanitize();
+        assert_eq!((s.calendar_accounts[0].calendars[0].remind, s.theme.as_str()), (DEFAULT_REMIND, "system"));
+        // The page sets a reminder and a theme: both are taken.
+        let mut page = s.clone();
+        page.calendar_accounts[0].calendars[0].remind = 15;
+        page.theme = "light".into();
+        let next = merge(&s, page);
+        assert_eq!((next.calendar_accounts[0].calendars[0].remind, next.theme.as_str()), (15, "light"));
     }
 
     #[test]

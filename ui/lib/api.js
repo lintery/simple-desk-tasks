@@ -14,7 +14,9 @@ export const listenMine = (event, cb) => me.listen(event, (e) => cb(e.payload));
 
 export const api = {
   tasks: () => invoke('get_tasks'),
-  add: (t) => invoke('add_task', { title: t.title, due: t.due ?? null, time: t.time ?? null, repeat: t.repeat ?? null }),
+  add: (t) => invoke('add_task', {
+    title: t.title, due: t.due ?? null, time: t.time ?? null, repeat: t.repeat ?? null, important: !!t.important,
+  }),
   update: (id, patch) => invoke('update_task', { id, patch }),
   remove: (id) => invoke('delete_task', { id }),
   /** Puts a deleted task back exactly as it was (same id, age, reminder state). */
@@ -25,6 +27,8 @@ export const api = {
   hotkey: () => invoke('hotkey_label'),
   movable: () => invoke('widgets_movable'),
   openUrl: (url) => invoke('open_url', { url }),
+  /** Windows is in light mode for apps. */
+  systemLight: () => invoke('system_theme_light'),
   /** Tells every widget which task is being dragged (null when the drag ends). */
   taskDrag: (id, token) => invoke('task_drag', { id, token }),
   /** No window took the drop: let the widget under the mouse handle it. */

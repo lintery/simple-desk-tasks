@@ -1,8 +1,11 @@
 // «Календарь»: meetings from the connected calendars (calendar.rs), read-only —
 // the month with a dot per calendar on busy days, and an agenda from today.
 
+import './lib/theme.js';
 import { api, listenAll } from './lib/api.js';
 import { initBackdrop } from './lib/backdrop.js';
+import { toDateStr, toTimeStr } from './lib/dates.js';
+import { trackScrollbar } from './lib/edges.js';
 import { esc } from './lib/icons.js';
 
 const $ = (id) => document.getElementById(id);
@@ -20,6 +23,12 @@ const SERVICES = [['ktalk', 'Толк'], ['zoom', 'Zoom'], ['telemost', 'Тел�
   ['vk.com', 'VK Звонки'], ['jazz', 'SaluteJazz']];
 
 let state = { configured: false, meetings: [], updated: 0, error: null, syncing: false };
+/** Meetings («id@start») being turned into a task right now. */
+const tasking = new Set();
+/** «date|title» of every task: a meeting with its prep task among them shows a tick. */
+let taskKeys = new Set();
+/** A task is due this long before its meeting, to get ready. */
+const PREP = 30 * MIN;
 /** Month shown, as an offset from the current one. */
 let monthOffset = 0;
 
@@ -146,10 +155,55 @@ function eventHtml(m, now, nextId) {
   const quick = m.link && !prominent && !ended
     ? `<button class="join sm" data-link="${esc(m.link)}" title="Подключиться · ${esc(service(m.link))}"><svg class="i"><use href="#i-vid"/></svg></button>`
     : '';
-  if (m.id === nextId && !live) extra += `<div class="ev-act"><span class="cd">через ${ahead(m.start - now)}</span>${join}</div>`;
-  else if (join) extra += `<div class="ev-act">${join}</div>`;
+  // «To my tasks»: on hover, for a meeting still ahead.
+  const key = taskKey(m);
+  const did = taskKeys.has(prepKey(m));
+  const toTask = m.start > now
+    ? `<button class="to-task${did ? ' did' : ''}" data-task="${esc(key)}" title="${did ? 'Задача уже в списке' : 'Добавить в задачи: подготовиться'}">` +
+      `<svg class="i"><use href="#${did ? 'i-ok' : 'i-task'}"/></svg></button>`
+    : '';
+  // A row with an action line keeps its buttons together on that line;
+  // the others have them at the row's end.
+  let rowEnd = `${toTask}${quick}`;
+  if (m.id === nextId && !live) {
+    extra += `<div class="ev-act"><span class="cd">через ${ahead(m.start - now)}</span>${toTask}${join}</div>`;
+    rowEnd = '';
+  } else if (join) {
+    extra += `<div class="ev-act">${toTask}${join}</div>`;
+    rowEnd = '';
+  }
   return `<div class="${cls.join(' ')}" style="--c:${esc(m.color || 'var(--ac)')}" title="${esc(m.title)}">${time}<div class="ev-c"></div>` +
-    `<div class="ev-b"><div class="ev-ttl">${esc(m.title)}</div><div class="ev-m">${meta}</div>${extra}</div>${quick}</div>`;
+    `<div class="ev-b"><div class="ev-ttl">${esc(m.title)}</div><div class="ev-m">${meta}</div>${extra}</div>${rowEnd}</div>`;
+}
+
+const taskKey = (m) => `${m.id}@${m.start}`;
+const prepTitle = (m) => `Подготовиться к встрече «${m.title}»${m.link ? ` ${m.link}` : ''}`;
+/** As the store keeps it (trimmed, at most 500 characters). */
+const prepKey = (m) => `${toDateStr(new Date(m.start))}|${[...prepTitle(m).trim()].slice(0, 500).join('')}`;
+
+function heardTasks(list) {
+  taskKeys = new Set((list ?? []).map((t) => `${t.due}|${t.title}`));
+  renderAgenda();
+}
+
+/** «Подготовиться к встрече «…»» on the meeting's day, half an hour before
+ * it starts (when that's still ahead; an all-day one gets no time). */
+async function meetingToTask(key, button) {
+  const m = state.meetings.find((x) => taskKey(x) === key);
+  if (!m || tasking.has(key) || taskKeys.has(prepKey(m))) return;
+  tasking.add(key);
+  button.disabled = true;
+  const prep = new Date(m.start - PREP);
+  const timed = !m.allDay && prep.getTime() > Date.now() && toDateStr(prep) === toDateStr(new Date(m.start));
+  try {
+    await api.add({ title: prepTitle(m), due: toDateStr(new Date(m.start)), time: timed ? toTimeStr(prep) : null });
+    taskKeys.add(prepKey(m)); // tasks-changed brings the same a moment later
+  } catch {
+    button.disabled = false;
+  } finally {
+    tasking.delete(key);
+  }
+  renderAgenda();
 }
 
 /** A press in the agenda holds its redraws back: one landing between
@@ -160,7 +214,7 @@ let holdTimer = 0;
 // Only a press on a button: one on the scrollbar never reports its release.
 // And a missed release (focus lost mid-press) can't hold redraws for long.
 $('agenda').addEventListener('pointerdown', (e) => {
-  if (!e.target.closest('.join')) return;
+  if (!e.target.closest('.join, .to-task')) return;
   pressing = true;
   clearTimeout(holdTimer);
   holdTimer = setTimeout(release, 1500);
@@ -235,6 +289,7 @@ w.addEventListener('click', (e) => {
     monthOffset += target.id === 'prev' ? -1 : 1;
     renderMonth();
   } else if (target.classList.contains('join')) api.openUrl(target.dataset.link).catch(() => {});
+  else if (target.dataset.task) meetingToTask(target.dataset.task, target);
   else if (target.dataset.day) {
     // A busy day in the month: scroll the agenda to it, when it's there. Only
     // the agenda moves (scrollIntoView would also shift the widget's own
@@ -258,6 +313,8 @@ listenAll('widgets-movable', setMovable);
 api.movable().then(setMovable).catch(() => {});
 
 listenAll('calendar', apply);
+listenAll('tasks-changed', heardTasks);
+api.tasks().then(heardTasks).catch(() => {});
 listenAll('settings-changed', () => api.calendar().then(apply).catch(() => {}));
 api.calendar().then(apply).catch(() => {});
 // Countdowns, «идёт», «N мин назад» and the date move on by themselves.
@@ -268,3 +325,4 @@ setInterval(() => {
 setInterval(renderMonth, 10 * MIN);
 render();
 initBackdrop(document.querySelector('.wall'));
+trackScrollbar($('agenda'));

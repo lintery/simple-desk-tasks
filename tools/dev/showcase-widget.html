@@ -6,6 +6,7 @@
 <!-- One widget of tools/dev/showcase.html: the real page from ui/ (index, focus
      or player) on made-up data, with demo-wallpaper.svg behind the glass.
      ?w=today|upcoming|nodate|focus|player|calendar|settings&x=<left>&y=<top>[&type=<text in the add field>][&nocal=1]
+     [&theme=light|dark|system]
      [&sound=<focus sound id>][&sound2=<second sound in the mix>][&stats=1] -->
 <script type="importmap">{ "imports": { "../../ui/lib/sounds.js": "./sounds-silent.js" } }</script>
 <script type="module">
@@ -25,7 +26,11 @@ const T = (title, due = null, time = null, repeat = null, extra = {}) =>
   ({ id: `d${++seq}`, title, due, time, repeat, done: false, doneAt: null, created: now - seq * 6e5, ...extra });
 const tasks = [
   T('Созвон с командой', day(0), '11:00'),
-  T('Отправить отчёт за неделю', day(0)),
+  T('Отправить отчёт за неделю', day(0), null, null, {
+    important: true,
+    subtasks: [{ id: 's1', title: 'Собрать цифры', done: true }, { id: 's2', title: 'Графики', done: true },
+      { id: 's3', title: 'Выводы', done: false }],
+  }),
   T('Позвонить в автосервис', day(0), '14:00'),
   T('Купить продукты на неделю', day(0)),
   T('Прогулка', day(0), '19:00', { kind: 'daily' }),
@@ -83,7 +88,7 @@ const meetings = [
 const settings = {
   modes: { pomodoro: { focus: 25, short: 5, long: 15, every: 4 }, focus50: { focus: 50, short: 10, long: 10, every: 0 },
     deep90: { focus: 90, short: 20, long: 20, every: 0 } },
-  backupEnabled: true, backupDir: 'D:\\OneDrive\\Задачи', autostart: true, autoUpdate: true,
+  backupEnabled: true, backupDir: 'D:\\OneDrive\\Задачи', autostart: true, autoUpdate: true, theme: q.get('theme') || 'dark',
   calendarAccounts: q.get('nocal') ? [] : [
     { id: 'mailru', provider: 'mailru', label: 'name@mail.ru', server: 'https://calendar.mail.ru',
       calendars: [{ url: 'a', name: 'Рабочий', color: WORK, enabled: true }, { url: 'b', name: 'Личный', color: HOME, enabled: true },
@@ -107,6 +112,7 @@ window.__TAURI__ = {
       get_tasks: structuredClone(tasks),
       get_backdrop: backdrop,
       hotkey_label: 'Alt+N',
+      system_theme_light: false,
       widgets_movable: false,
       focus_state: structuredClone(focus),
       focus_action: structuredClone(focus),

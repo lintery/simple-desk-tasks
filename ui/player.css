@@ -3,7 +3,8 @@
 .pl button svg{pointer-events:none}
 .pl-art{position:relative;flex:none;width:92px;height:92px;border-radius:var(--r-row);overflow:hidden;
   background:linear-gradient(165deg,#323e78 0%,#5b4f8f 55%,#8e6f9a 100%) center/cover no-repeat;
-  box-shadow:0 0 0 1px rgba(255,255,255,.06),0 6px 16px -6px rgba(0,0,0,.6);transition:filter var(--d3) var(--e-out)}
+  box-shadow:0 0 0 1px rgba(var(--fg),.06),0 6px 16px -6px rgba(0,0,0,.6);transition:filter var(--d3) var(--e-out)}
+/* on the cover's own dark colours: white in either theme */
 .pl-art>.i{position:absolute;inset:0;margin:auto;width:28px;height:28px;color:rgba(255,255,255,.55)}
 .pl-art.has-cover>.i{display:none}
 .pl.paused .pl-art{filter:saturate(.55) brightness(.82)}
@@ -19,6 +20,7 @@
 .pl-who .tog{width:22px;height:20px;color:var(--t4)}
 .pl-who .tog .i{width:13px;height:13px}
 .pl-who .tog.on{color:var(--ac)}
+.pl-who .tog:last-child{margin-right:-4.5px} /* its icon on the right edge, under the wave */
 /* the source sits on the cover, like a label */
 .pl-src{position:absolute;left:5px;bottom:5px;display:inline-flex;align-items:center;gap:4px;height:16px;max-width:82px;padding:0 5px 0 4px;
   border-radius:4px;overflow:hidden;white-space:nowrap;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);
@@ -30,7 +32,7 @@
 .pl-t{flex:none;min-width:26px;font-size:10.5px;line-height:14px;color:var(--t3);font-variant-numeric:tabular-nums}
 .pl-t:last-child{text-align:right}
 .pl-bar{position:relative;flex:1;height:14px;display:flex;align-items:center}
-.pl-bar::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:rgba(255,255,255,.09)}
+.pl-bar::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:rgba(var(--fg),.09)}
 .pl-bar i{position:absolute;left:0;height:3px;border-radius:2px;background:var(--t2)}
 .pl-bar i::after{content:"";position:absolute;right:-4px;top:-2.5px;width:8px;height:8px;border-radius:50%;background:var(--t1);
   box-shadow:0 1px 3px rgba(0,0,0,.5);transition:transform var(--d1) var(--e-spring)}
@@ -42,7 +44,8 @@
 
 /* controls · volume */
 .pl-row{display:flex;align-items:center;justify-content:space-between;height:30px;margin-top:6px}
-.pl-ctl{display:flex;align-items:center;gap:6px;margin-left:-4px}
+/* the first icon (not its button) on the left edge of the title and times */
+.pl-ctl{display:flex;align-items:center;gap:6px;margin-left:-6.5px}
 .pl-ctl .ib{width:26px;height:26px;color:var(--t2)}
 .pl-ctl .ib .i{width:13px;height:13px}
 .pl-ctl .ib:disabled{opacity:.35;pointer-events:none}
@@ -54,7 +57,7 @@
 .pl-vol .ib{width:24px;height:24px;color:var(--t3)}
 .pl-vol .ib.off{color:var(--t1);background:var(--raise-2)}
 .slider{position:relative;width:62px;height:16px;display:flex;align-items:center;cursor:pointer;touch-action:none}
-.slider::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:rgba(255,255,255,.09)}
+.slider::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:rgba(var(--fg),.09)}
 .slider i{position:absolute;left:0;height:3px;border-radius:2px;background:var(--t2)}
 .slider i::after{content:"";position:absolute;right:-5px;top:-3.5px;width:10px;height:10px;border-radius:50%;background:var(--t1);
   box-shadow:0 1px 3px rgba(0,0,0,.5);transition:transform var(--d1) var(--e-spring)}

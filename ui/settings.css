@@ -1,7 +1,6 @@
 /* «Настройки»: an ordinary window (not pinned to the desktop): sections on
    the left, one at a time on the right. */
-:root{--ac-txt:#b3bfff}
-html,body{height:100%;background:#1b1b1f}
+html,body{height:100%;background:var(--bg)}
 body{overflow:hidden}
 button svg{pointer-events:none}
 [hidden]{display:none!important}
@@ -9,7 +8,7 @@ button svg{pointer-events:none}
 .shell{display:grid;grid-template-columns:184px 1fr;height:100%}
 
 /* sidebar */
-.side{display:flex;flex-direction:column;gap:2px;padding:18px 10px;background:linear-gradient(180deg,#202026,#1c1c21);
+.side{display:flex;flex-direction:column;gap:2px;padding:18px 10px;background:linear-gradient(180deg,rgba(var(--fg),.035),rgba(var(--fg),.012)),var(--bg);
   box-shadow:inset -1px 0 0 var(--line)}
 .brand{display:flex;flex-direction:column;padding:0 10px 14px}
 .brand b{font:600 15px/20px var(--font-d);letter-spacing:-.01em}
@@ -29,7 +28,7 @@ button svg{pointer-events:none}
 .pane-h{margin-bottom:14px}
 .pane-h h2{font:600 18px/24px var(--font-d);letter-spacing:-.015em}
 .pane-h p{margin-top:3px;font-size:12px;line-height:17px;color:var(--t3)}
-.card{border-radius:var(--r-row);background:var(--raise);box-shadow:inset 0 0 0 1px rgba(255,255,255,.04),inset 0 1px 0 rgba(255,255,255,.03)}
+.card{border-radius:var(--r-row);background:var(--raise);box-shadow:inset 0 0 0 1px rgba(var(--fg),.04),inset 0 1px 0 rgba(var(--fg),.03)}
 .pad{padding:12px 14px}
 .hr{height:1px;background:var(--line)}
 .note{margin-top:8px;font-size:11.5px;line-height:15px;color:var(--t3)}
@@ -37,7 +36,7 @@ button svg{pointer-events:none}
 
 /* save errors and other short news */
 .toast{position:sticky;top:0;z-index:2;margin:-8px 0 12px;padding:9px 12px;border-radius:var(--r-chip);font-size:12px;line-height:16px;
-  color:var(--t1);background:#3a2626;box-shadow:inset 0 0 0 1px rgba(255,120,120,.25)}
+  color:var(--t1);background:linear-gradient(var(--od-soft),var(--od-soft)),var(--surface-2);box-shadow:inset 0 0 0 1px var(--od-line)}
 
 /* fields */
 .flds{display:flex;gap:10px;align-items:flex-end}
@@ -45,7 +44,7 @@ button svg{pointer-events:none}
 .fld{flex:1;min-width:0}
 .fld label{display:block;margin-bottom:5px;font-size:11.5px;line-height:14px;color:var(--t3)}
 .inp{display:flex;align-items:center;gap:8px;height:30px;padding:0 4px 0 10px;border-radius:var(--r-chip);font-size:12.5px;color:var(--t1);
-  background:rgba(0,0,0,.24);box-shadow:inset 0 0 0 1px var(--line),inset 0 1px 0 rgba(0,0,0,.2)}
+  background:var(--well);box-shadow:inset 0 0 0 1px var(--line),inset 0 1px 0 rgba(0,0,0,calc(.2 * var(--sh)))}
 .inp:focus-within{box-shadow:inset 0 0 0 1px var(--ac-line)}
 .inp input{flex:1;min-width:0;height:100%;font-size:12.5px}
 .inp span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -58,11 +57,11 @@ button svg{pointer-events:none}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 12px;border-radius:var(--r-chip);
   font-size:12px;font-weight:600;white-space:nowrap;transition:background var(--d1),opacity var(--d1)}
 .btn.pri{color:var(--ink);background:var(--ac);box-shadow:0 4px 12px -4px var(--ac-line)}
-.btn.sub{color:var(--t1);background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.04)}
-.btn.sub:hover{background:rgba(255,255,255,.1)}
+.btn.sub{color:var(--t1);background:rgba(var(--fg),.07);box-shadow:inset 0 0 0 1px rgba(var(--fg),.04)}
+.btn.sub:hover{background:rgba(var(--fg),.1)}
 .btn.ghost{color:var(--t3);padding:0 8px}
-.btn.ghost:hover{color:var(--t1);background:rgba(255,255,255,.06)}
-.btn.danger{color:#ffb4b4}
+.btn.ghost:hover{color:var(--t1);background:rgba(var(--fg),.06)}
+.btn.danger{color:var(--od)}
 .btn:disabled{opacity:.5;pointer-events:none}
 .btn .i{width:13px;height:13px;stroke-width:1.6}
 .btn.busy .i{animation:spin 1s linear infinite}
@@ -82,8 +81,19 @@ button svg{pointer-events:none}
 .acc-t span.bad::before{content:"";flex:none;width:6px;height:6px;margin-top:4.5px;border-radius:50%;background:var(--od)}
 .acc-a{display:flex;gap:4px}
 .cals{display:grid;grid-template-columns:1fr 1fr;column-gap:8px;padding:2px 6px 8px}
-.ck{display:flex;align-items:center;gap:10px;height:28px;padding:0 8px;border-radius:var(--r-chip);font-size:12.5px;text-align:left}
-.ck:hover{background:var(--raise)}
+.cal{display:flex;align-items:center;gap:2px;min-width:0}
+.ck{flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:28px;padding:0 8px;border-radius:var(--r-chip);font-size:12.5px;text-align:left}
+button.ck:hover{background:var(--raise)}
+.ck.one{cursor:default}
+/* a calendar's reminder: a quiet select that shows itself on hover */
+.rem{flex:none;position:relative;display:flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 6px;border-radius:var(--r-chip);
+  color:var(--t3);transition:background var(--d1),color var(--d1)}
+.rem .i{width:12px;height:12px}
+.rem select{appearance:none;border:0;background:none;font:inherit;font-size:11.5px;color:inherit;cursor:pointer;outline:none;padding-right:2px}
+.rem select option{color:var(--t1);background:var(--surface-2)}
+.rem:hover,.rem:focus-within{background:var(--raise-2);color:var(--t1)}
+.rem.off{opacity:.45}
+.rem.off select{cursor:default}
 .ck span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .box{flex:none;width:16px;height:16px;border-radius:4px;display:grid;place-items:center;box-shadow:inset 0 0 0 1.5px var(--t4)}
 .box .i{width:10px;height:10px;stroke-width:2;color:var(--ink);opacity:0}
@@ -102,7 +112,7 @@ button svg{pointer-events:none}
 .sub-h .ib{width:26px;height:26px}
 .providers{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .prov{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:var(--r-row);text-align:left;background:var(--raise);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);transition:background var(--d1),box-shadow var(--d1)}
+  box-shadow:inset 0 0 0 1px rgba(var(--fg),.04);transition:background var(--d1),box-shadow var(--d1)}
 .prov:hover{background:var(--raise-2);box-shadow:inset 0 0 0 1px var(--ac-line)}
 .prov b{display:block;font-size:13px;line-height:17px}
 .prov span span{display:block;font-size:11.5px;line-height:15px;color:var(--t3)}
@@ -120,7 +130,7 @@ button svg{pointer-events:none}
 .fd .md{height:29px;display:flex;flex-direction:column;justify-content:center}
 .fd .md b{font-size:12.5px;line-height:16px;font-weight:500}
 .fd .na{padding-left:34px;color:var(--t4);font-size:12px}
-.stp{display:inline-flex;align-items:center;width:84px;height:26px;border-radius:var(--r-chip);background:rgba(0,0,0,.24);box-shadow:inset 0 0 0 1px var(--line)}
+.stp{display:inline-flex;align-items:center;width:84px;height:26px;border-radius:var(--r-chip);background:var(--well);box-shadow:inset 0 0 0 1px var(--line)}
 .stp button{width:22px;height:26px;display:grid;place-items:center;color:var(--t3)}
 .stp button:hover{color:var(--t1)}
 .stp .i{width:11px;height:11px;stroke-width:1.6}
@@ -135,11 +145,16 @@ button svg{pointer-events:none}
   transition:left var(--d2) var(--e-out),width var(--d2),height var(--d2),top var(--d2)}
 .tg.on{background:var(--ac);box-shadow:none}
 .tg.on::after{left:19px;top:3px;width:14px;height:14px;background:var(--ink)}
-kbd{flex:none;padding:3px 8px;border-radius:5px;font:600 11.5px/16px var(--font);color:var(--t1);background:rgba(255,255,255,.08);
-  box-shadow:inset 0 -1px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.06)}
+/* segmented choice (theme) */
+.seg{flex:none;display:inline-flex;gap:2px;padding:2px;border-radius:7px;background:var(--well);box-shadow:inset 0 0 0 1px var(--line)}
+.seg button{height:24px;padding:0 10px;border-radius:5px;font-size:12px;color:var(--t3);transition:background var(--d1),color var(--d1)}
+.seg button:hover{color:var(--t1)}
+.seg button.sel{background:var(--raise-2);color:var(--t1);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,calc(.25 * var(--sh)))}
+kbd{flex:none;padding:3px 8px;border-radius:5px;font:600 11.5px/16px var(--font);color:var(--t1);background:rgba(var(--fg),.08);
+  box-shadow:inset 0 -1px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(var(--fg),.06)}
 .ver{display:flex;align-items:center;gap:8px;font-size:12.5px}
 .ver b{font-weight:600;font-variant-numeric:tabular-nums}
-.tag{display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;font-size:10.5px;font-weight:600;color:var(--t3);background:rgba(255,255,255,.06)}
+.tag{display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 6px;border-radius:4px;font-size:10.5px;font-weight:600;color:var(--t3);background:rgba(var(--fg),.06)}
 .tag .i{width:10px;height:10px;stroke-width:2;color:var(--ac)}
 .tag.new{color:var(--ac-txt);background:var(--ac-soft)}
 .upd .hr{margin:11px -14px 11px}

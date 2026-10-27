@@ -1,12 +1,16 @@
 // One widget window: «Сегодня» / «Предстоящие» / «Без срока», picked by window label.
 
+import './lib/theme.js';
 import { api, focusSelf, label, listenAll, listenMine } from './lib/api.js';
 import { initBackdrop } from './lib/backdrop.js';
 import { addDays, dayLabel, daysBetween, fromDateStr, isoWeekday, plural, toDateStr, WEEKDAYS_SHORT } from './lib/dates.js';
-import { I, esc } from './lib/icons.js';
+import { I, chipHtml, esc } from './lib/icons.js';
+import { datePicker } from './lib/datepicker.js';
+import { trackScrollbar } from './lib/edges.js';
+import { attachHilite } from './lib/hilite.js';
 import {
-  bucketOf, clock, isOverdue, nextOccurrence, nodateView, orderKey, overdueLabel, repeatLabel, todayView,
-  upcomingView,
+  bucketOf, clock, isOverdue, nextOccurrence, nodateView, orderKey, overdueLabel, repeatLabel, subtaskProgress,
+  todayView, upcomingView,
 } from './lib/model.js';
 import { parse, trimUrl, URL_RE } from './lib/nlp.js';
 
@@ -76,15 +80,28 @@ function finalChips(p, due) {
     .filter(Boolean);
 }
 
-function chipHtml(chip) {
-  const icon = chip.kind === 'date' ? I.cal : chip.kind === 'time' ? I.clock : I.rep;
-  return `<span class="chip">${icon}${esc(chip.label)}</span>`;
-}
-
 // ---------------------------------------------------------------- rows
+
+/** Tasks whose checklist is open under the row. */
+const openSubs = new Set();
+/** Text typed into a checklist's «add» field, kept across re-renders. */
+const subDraft = new Map();
+/** The task whose «add subtask» field has the keyboard (refocused after a re-render). */
+let subFocus = null;
+
+/** «2/5» under the task: opens its checklist. */
+function progressHtml(t) {
+  const p = subtaskProgress(t);
+  if (!p) return '';
+  const all = p.done === p.total ? ' all' : '';
+  return `<button class="sp${all}" data-act="subs" title="${openSubs.has(t.id) ? 'Свернуть подзадачи' : 'Подзадачи'}">`
+    + `${I.list}${p.done}/${p.total}</button>`;
+}
 
 function metaHtml(t, c, opts) {
   const parts = [];
+  if (t.important) parts.push(`<span class="flag" title="Важное">${I.flag}</span>`);
+  parts.push(progressHtml(t));
   if (t.repeat) parts.push(I.rep);
   let cls = 'meta';
   if (t.time) {
@@ -97,7 +114,19 @@ function metaHtml(t, c, opts) {
       parts.push(s);
     }
   }
-  return parts.length ? `<div class="${cls}">${parts.join('')}</div>` : '';
+  const html = parts.join('');
+  return html ? `<div class="${cls}">${html}</div>` : '';
+}
+
+/** The open checklist: items, each with its own check and ×, and a field to add one. */
+function subsHtml(t) {
+  if (!openSubs.has(t.id)) return '';
+  const items = (t.subtasks ?? []).map((s) => `<div class="sub${s.done ? ' done static' : ''}" data-sid="${esc(s.id)}">`
+    + `<button class="cb" data-act="sub-check" title="${s.done ? 'Вернуть' : 'Выполнить'}">${I.tick}</button>`
+    + `<span class="st">${titleHtml(s.title)}</span>`
+    + `<button class="ib x" data-act="sub-del" title="Удалить подзадачу">${I.x}</button></div>`).join('');
+  return `<div class="subs">${items}<label class="sub-add"><span class="plus">${I.plus}</span>`
+    + `<input class="sub-in" placeholder="Подзадача" value="${esc(subDraft.get(t.id) ?? '')}" spellcheck="false" maxlength="500"></label></div>`;
 }
 
 /** Tooltip for the task text: the details the time column only hints at
@@ -136,24 +165,29 @@ function actsHtml(withTomorrow) {
   const later = KIND === 'upcoming' ? 'На день позже' : 'На завтра';
   return `<div class="acts">${withTomorrow ? `<button class="ib" data-act="later" title="${later}">${I.tomorrow}</button>` : ''}`
     + `<button class="ib" data-act="date" title="Дата…">${I.cal}</button>`
+    + `<button class="ib" data-act="more" title="Ещё: важное, подзадачи">${I.more}</button>`
     + `<button class="ib del" data-act="del" title="Удалить">${I.del}</button></div>`;
 }
 
 function rowHtml(t, c, opts = {}) {
   const done = ghosts.has(t.id);
+  const open = openSubs.has(t.id);
+  // An open checklist has a text field: dragging there selects text, not the row.
+  const cls = `row${opts.overdue ? ' od' : ''}${done ? ' done' : ''}${t.important ? ' imp' : ''}${open ? ' open' : ''}`;
+  const head = `<div class="${cls}" data-id="${t.id}" draggable="${!done && !open}">`
+    + `<button class="cb" data-act="check" title="Выполнить">${I.tick}</button>`;
   if (opts.overdue) {
     const pills = (t.due < c.today ? '<button class="pill" data-act="to-today">Сегодня</button>' : '')
       + '<button class="pill" data-act="to-tomorrow">Завтра</button>';
-    return `<div class="row od${done ? ' done' : ''}" data-id="${t.id}" draggable="${!done}">`
-      + `<button class="cb" data-act="check" title="Выполнить">${I.tick}</button>`
+    const flag = t.important ? `<span class="flag" title="Важное">${I.flag}</span>` : '';
+    return head
       + `<div class="body"><div class="tx" data-act="edit"><span>${titleHtml(t.title)}</span></div>`
-      + `<div class="odl"><span>Просрочено · ${esc(overdueLabel(t, c))}</span><span class="rs">${pills}</span></div></div>`
-      + `${actsHtml(false)}</div>`;
+      + `<div class="odl">${flag}<span>Просрочено · ${esc(overdueLabel(t, c))}</span>${progressHtml(t)}<span class="rs">${pills}</span></div></div>`
+      + `${actsHtml(false)}${subsHtml(t)}</div>`;
   }
-  return `<div class="row${done ? ' done' : ''}" data-id="${t.id}" draggable="${!done}">`
-    + `<button class="cb" data-act="check" title="Выполнить">${I.tick}</button>`
+  return head
     + `<div class="tx" data-act="edit"${rowHint(t, c, opts)}><span>${titleHtml(t.title)}</span></div>`
-    + `${actsHtml(true)}${metaHtml(t, c, opts)}</div>`;
+    + `${actsHtml(true)}${metaHtml(t, c, opts)}${subsHtml(t)}</div>`;
 }
 
 function rowNode(t, c, opts) {
@@ -194,7 +228,10 @@ function render() {
 
   if (KIND === 'today') {
     const v = todayView(all, c);
-    const next = v.active.find((t) => t.time && t.time > c.time && !ghosts.has(t.id));
+    // The soonest timed one (important ones are listed first, so not simply the first found).
+    const next = v.active
+      .filter((t) => t.time && t.time > c.time && !ghosts.has(t.id))
+      .reduce((a, t) => (!a || t.time < a.time ? t : a), null);
     for (const t of v.active) nodes.push(push(t, { next: t === next }));
     if (v.overdue.length) {
       nodes.push(Object.assign(document.createElement('div'), { className: 'grow' }));
@@ -232,7 +269,14 @@ function render() {
     nodes.splice(0, nodes.length, banner, ...nodes.filter((n) => !n.classList.contains('empty')));
   }
   for (const id of [...rowCache.keys()]) if (!used.has(id)) rowCache.delete(id);
+  for (const id of [...openSubs]) if (!used.has(id)) openSubs.delete(id); // moved to another widget or gone
   listEl.replaceChildren(...nodes);
+  // A rebuilt row brings a new «add subtask» field: the keyboard goes back to it.
+  const field = subFocus && rowCache.get(subFocus)?.el.querySelector('.sub-in');
+  if (field && document.activeElement !== field && document.hasFocus()) {
+    field.focus();
+    field.setSelectionRange(field.value.length, field.value.length);
+  }
 }
 
 function emptyNode(text) {
@@ -363,6 +407,11 @@ function complete(id) {
   const next = t.repeat ? nextOccurrence(t, c) : null;
   const patch = next ? { due: next } : { done: true };
   const back = next ? { due: t.due } : { done: false };
+  // The next time of a recurring task starts with its checklist unticked.
+  if (next && t.subtasks?.some((s) => s.done)) {
+    patch.subtasks = t.subtasks.map((s) => ({ ...s, done: false }));
+    back.subtasks = t.subtasks;
+  }
   ghosts.set(id, { ...t });
   render();
   api.update(id, patch).catch((e) => {
@@ -426,9 +475,11 @@ function offerUndoNoDate(t) {
  */
 function parsedPatch(p, t) {
   const patch = {};
-  if (p.hasDate || !t.due || t.due < clock().today) patch.due = p.due;
+  // «!» alone sets only the flag: the date stays.
+  if (p.chips.some((ch) => ch.kind !== 'important') && (p.hasDate || !t.due || t.due < clock().today)) patch.due = p.due;
   if (p.time) patch.time = p.time;
   if (p.repeat) patch.repeat = p.repeat;
+  if (p.important && !t.important) patch.important = true;
   return patch;
 }
 
@@ -515,55 +566,123 @@ function closePop() {
   popEl = null;
 }
 
+/** Puts the popover under `anchor` (above it when there's no room below).
+ *  `anchor` may be the rect it had: a row re-rendered meanwhile is gone. */
+function placePop(anchor) {
+  if (!popEl.isConnected) document.body.append(popEl);
+  const r = anchor instanceof Element ? anchor.getBoundingClientRect() : anchor;
+  const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
+  popEl.style.left = `${Math.max(6, Math.min(r.right - pw, innerWidth - pw - 6))}px`;
+  popEl.style.top = `${r.bottom + ph + 6 > innerHeight ? Math.max(6, r.top - ph - 4) : r.bottom + 4}px`;
+}
+
+/** «⋯»: flag the task as important, open its checklist. */
+function openMoreMenu(id, anchor) {
+  closePop();
+  const t = find(id);
+  if (!t) return;
+  const p = subtaskProgress(t);
+  popEl = document.createElement('div');
+  popEl.className = 'pop';
+  popEl.innerHTML = `<button data-more="flag">${I.flag}${t.important ? 'Снять «важное»' : 'Важное'}<span>! в тексте</span></button>`
+    + `<button data-more="subs">${I.list}${p ? (openSubs.has(id) ? 'Свернуть подзадачи' : 'Подзадачи') : 'Добавить подзадачи'}`
+    + `<span>${p ? `${p.done} из ${p.total}` : ''}</span></button>`;
+  placePop(anchor);
+  popEl.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    closePop();
+    if (b.dataset.more === 'flag') save(api.update(id, { important: !t.important }));
+    else toggleSubs(id, true);
+  });
+}
+
+/** Opens or closes a task's checklist; an empty one opens straight into its field. */
+function toggleSubs(id, focusField = false) {
+  const t = find(id);
+  if (!t) return;
+  if (openSubs.has(id)) {
+    openSubs.delete(id);
+    if (subFocus === id) subFocus = null;
+  } else {
+    openSubs.add(id);
+    if (focusField || !t.subtasks?.length) subFocus = id;
+  }
+  rowCache.delete(id);
+  render();
+}
+
+const newSubId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** Saves a changed checklist; `list` replaces the task's subtasks. */
+/** id → the checklist being saved (and which save): until that save is done,
+ *  it wins over any `tasks-changed` that may still be from an earlier one. */
+const pendingSubs = new Map();
+let subSaves = 0;
+
+/** Lays checklists still being saved over a list of tasks from the store. */
+function withPending(list) {
+  for (const t of list) if (pendingSubs.has(t.id)) t.subtasks = pendingSubs.get(t.id).list;
+  return list;
+}
+
+function saveSubs(id, list) {
+  // Shown at once and kept as the base for the next click: quick clicks
+  // (tick A, tick B, tick C) each build on the one before, not on a stale list.
+  const t = find(id);
+  if (t) {
+    t.subtasks = list;
+    render();
+  }
+  const n = ++subSaves;
+  pendingSubs.set(id, { list, n });
+  const done = () => {
+    if (pendingSubs.get(id)?.n === n) pendingSubs.delete(id);
+  };
+  return api.update(id, { subtasks: list }).then(done, (e) => {
+    done();
+    flash(e);
+    api.tasks().then((fresh) => { tasks = withPending(fresh); render(); }).catch(() => {});
+  });
+}
+
+function addSub(id, input) {
+  const t = find(id);
+  const title = input.value.trim();
+  if (!t || !title) return;
+  subDraft.delete(id);
+  input.value = '';
+  saveSubs(id, [...(t.subtasks ?? []), { id: newSubId(), title, done: false }]);
+}
+
+/** «Когда»: date, time and recurrence (lib/datepicker.js). Each choice is
+ *  saved at once; the popover stays open for the next one. */
 function openDateMenu(id, anchor) {
   closePop();
   const t = find(id);
   if (!t) return;
-  const c = clock();
-  const tomorrow = addDays(c.today, 1);
-  const wd = isoWeekday(c.today);
-  const nextMon = addDays(c.today, ((1 - wd + 7) % 7) || 7);
-  const fmt = (d) => { const x = fromDateStr(d); return `${WEEKDAYS_SHORT[x.getDay()]}, ${shortDate(x)}`; };
-  const items = [
-    ['Сегодня', c.today], ['Завтра', tomorrow],
-    ...(nextMon !== tomorrow ? [['Понедельник', nextMon]] : []),
-    ['Через неделю', addDays(c.today, 7)],
-  ];
-  popEl = document.createElement('div');
-  popEl.className = 'pop';
-  popEl.innerHTML = items.map(([name, d]) => `<button data-due="${d}"${t.due === d ? ' class="sel"' : ''}>${name}<span>${fmt(d)}</span></button>`).join('')
-    + `<button data-due=""${t.due ? '' : ' class="sel"'}>Без срока<span></span></button>`
-    + (t.repeat ? '<button data-norepeat>Не повторять<span>' + esc(repeatLabel(t.repeat)) + '</span></button>' : '')
-    + '<hr><input placeholder="или: 25.10 в 15, каждый пн" spellcheck="false">';
-  document.body.append(popEl);
-
-  const r = anchor.getBoundingClientRect();
-  const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
-  popEl.style.left = `${Math.max(6, Math.min(r.right - pw, innerWidth - pw - 6))}px`;
-  popEl.style.top = `${r.bottom + ph + 6 > innerHeight ? Math.max(6, r.top - ph - 4) : r.bottom + 4}px`;
-
-  popEl.addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.hasAttribute('data-norepeat')) save(api.update(id, { repeat: null }));
-    else setDue(id, b.dataset.due || null);
-    closePop();
+  popEl = datePicker(t, {
+    apply: (patch) => api.update(id, patch).catch((e) => {
+      flash(e);
+      throw e;
+    }),
+    current: () => find(id),
+    clear: () => {
+      closePop();
+      setDue(id, null);
+    },
+    text: (p) => {
+      closePop();
+      save(api.update(id, parsedPatch(p, find(id) ?? t)));
+    },
+    close: closePop,
   });
-  const input = popEl.querySelector('input');
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') return closePop();
-    if (e.key !== 'Enter') return;
-    // A lone «пт» / «пятницу» here clearly means a day, so retry it as «в пт» —
-    // but only keep the retry if it found a date («3 дня» must not become 15:00).
-    let p = parse(`задача ${input.value}`, new Date(), t.due);
-    if (!p.chips.length) {
-      const retry = parse(`задача в ${input.value}`, new Date(), t.due);
-      if (retry.hasDate) p = retry;
-    }
-    if (!p.chips.length) { input.select(); return; }
-    save(api.update(id, parsedPatch(p, t)));
-    closePop();
-  });
+  // It grows (the weekdays of a weekly repeat): placed again by where the button was.
+  const rect = anchor.getBoundingClientRect();
+  placePop(rect);
+  const pop = popEl;
+  new ResizeObserver(() => { if (popEl === pop) placePop(rect); }).observe(pop);
+  pop.focus({ preventScroll: true }); // Esc closes it from the start
 }
 
 document.addEventListener('mousedown', (e) => {
@@ -581,10 +700,12 @@ function draft() {
   // In «Предстоящие» a bare time («созвон в 15») means tomorrow, like no date at all.
   const due = (KIND === 'upcoming' && !p.hasDate) || !p.due ? defaultDue(c) : p.due;
   const dest = bucketOf({ due, done: false }, c);
-  return { title: p.title, due, time: p.time, repeat: p.repeat, chips: finalChips(p, due), dest };
+  return { title: p.title, due, time: p.time, repeat: p.repeat, important: p.important, chips: finalChips(p, due), dest };
 }
 
 function renderDraft() {
+  hilite();
+  $('add-go').classList.toggle('ready', !!addInput.value.trim());
   const d = draft();
   const show = d && (d.chips.length || d.dest !== KIND);
   addEl.classList.toggle('parsed-on', !!show);
@@ -598,6 +719,7 @@ function renderDraft() {
 
 let adding = false;
 
+const hilite = attachHilite(addInput, (text) => parse(text).spans);
 addInput.addEventListener('input', renderDraft);
 addInput.addEventListener('focus', () => addEl.classList.add('on'));
 addInput.addEventListener('blur', () => addEl.classList.remove('on'));
@@ -609,6 +731,10 @@ addInput.addEventListener('keydown', (e) => {
   }
   if (e.key !== 'Enter') return;
   e.preventDefault();
+  submitDraft();
+});
+
+function submitDraft() {
   const d = draft();
   if (!d || adding) return;
   adding = true;
@@ -619,6 +745,16 @@ addInput.addEventListener('keydown', (e) => {
     })
     .catch(flash)
     .finally(() => { adding = false; });
+}
+
+// The arrow at the end of the field: adds what's typed (lit once there's text).
+const addGo = $('add-go');
+addGo.innerHTML = I.arrow;
+addGo.addEventListener('mousedown', (e) => e.preventDefault()); // the field keeps the keyboard
+addGo.addEventListener('click', (e) => {
+  e.preventDefault(); // inside the <label>: not a click on the field
+  if (addInput.value.trim()) submitDraft();
+  else addInput.focus();
 });
 
 // ---------------------------------------------------------------- drag & drop
@@ -674,7 +810,7 @@ function markDrop(clientY) {
       gh?.classList.add('drop-target');
     }
   } else if (KIND === 'nodate') {
-    const rows = otherRows();
+    const rows = peerRows(activeDrag);
     const i = dropIndex(rows, clientY);
     const ref = rows[i] ?? rows[rows.length - 1];
     let y = 4;
@@ -689,8 +825,15 @@ function markDrop(clientY) {
 }
 
 /** Order value for a drop at `clientY` in «Без срока»; renumbers if values got too close. */
+/** «Без срока» rows a dragged task can land among: the important ones keep
+ *  the top, so a task moves only within its own group. */
+function peerRows(id) {
+  const important = !!find(id)?.important;
+  return otherRows().filter((r) => !!find(r.dataset.id)?.important === important);
+}
+
 function orderAt(id, clientY) {
-  const rows = otherRows();
+  const rows = peerRows(id);
   const list = rows.map((r) => find(r.dataset.id)).filter(Boolean);
   const i = dropIndex(rows, clientY);
   const prev = list[i - 1], next = list[i];
@@ -825,12 +968,57 @@ listEl.addEventListener('click', (e) => {
     case 'edit': return startEdit(id);
     case 'later': return later(id);
     case 'date': return openDateMenu(id, el);
+    case 'more': return openMoreMenu(id, el);
+    case 'subs': return toggleSubs(id);
+    case 'sub-check':
+    case 'sub-del': {
+      const t = find(id);
+      const sid = el.closest('.sub')?.dataset.sid;
+      if (!t || !sid) return;
+      const list = el.dataset.act === 'sub-del'
+        ? t.subtasks.filter((s) => s.id !== sid)
+        : t.subtasks.map((s) => (s.id === sid ? { ...s, done: !s.done } : s));
+      return saveSubs(id, list);
+    }
     case 'del': return remove(id);
     case 'to-today': return setDue(id, clock().today);
     case 'to-tomorrow': return setDue(id, addDays(clock().today, 1));
     case 'all-tomorrow': return allTomorrow();
     default:
   }
+});
+
+// The checklist's «add» field: Enter adds, Esc leaves it (closing an empty checklist).
+listEl.addEventListener('keydown', (e) => {
+  const input = e.target.closest?.('.sub-in');
+  const id = input?.closest('.row')?.dataset.id;
+  if (!id) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addSub(id, input);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    subFocus = null;
+    if (!find(id)?.subtasks?.length) toggleSubs(id);
+    else input.blur();
+  }
+});
+listEl.addEventListener('input', (e) => {
+  const id = e.target.closest?.('.sub-in')?.closest('.row')?.dataset.id;
+  if (id) subDraft.set(id, e.target.value);
+});
+listEl.addEventListener('focusin', (e) => {
+  const id = e.target.closest?.('.sub-in')?.closest('.row')?.dataset.id;
+  if (id) subFocus = id;
+});
+listEl.addEventListener('focusout', (e) => {
+  const input = e.target.closest?.('.sub-in');
+  if (!input) return;
+  // A field removed by a re-render keeps its claim (render() refocuses the new one);
+  // one the user left lets go.
+  setTimeout(() => {
+    if (input.isConnected && document.activeElement !== input && document.hasFocus()) subFocus = null;
+  });
 });
 
 listEl.addEventListener('pointerdown', () => { pressing = true; });
@@ -870,7 +1058,7 @@ document.addEventListener('contextmenu', (e) => {
 let heardTasks = false, heardStatus = false;
 listenAll('tasks-changed', (list) => {
   heardTasks = true;
-  tasks = list;
+  tasks = withPending(list);
   render();
 });
 
@@ -897,6 +1085,7 @@ setInterval(() => {
 
 addInput.placeholder = KIND === 'upcoming' ? 'Новая задача · «в пт в 15»' : 'Новая задача';
 initBackdrop(document.querySelector('.wall'));
+trackScrollbar(listEl);
 Promise.all([api.tasks(), api.storeStatus()]).then(([list, error]) => {
   if (!heardTasks) tasks = list;
   if (!heardStatus) storeError = error;

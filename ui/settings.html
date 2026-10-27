@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Настройки · Simple Desk Widgets</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('theme')||'dark'}catch(e){}</script>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="settings.css">
 <script type="module" src="settings.js"></script>
@@ -25,6 +26,7 @@
   <symbol id="i-timer" viewBox="0 0 16 16"><circle cx="8" cy="9" r="5.2"/><path d="M8 9V6.4M6.4 2.2h3.2"/></symbol>
   <symbol id="i-save" viewBox="0 0 16 16"><path d="M3.2 2.6h7.6l2.6 2.6v8.2H3.2Z"/><path d="M5.4 2.6v3.2h4.4V2.6M5.4 13.4V9.6h5.2v3.8"/></symbol>
   <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 16 16"><path d="M4.2 11.4V7.6a3.8 3.8 0 0 1 7.6 0v3.8l1.2 1.4H3ZM6.6 14.2h2.8"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M8 2.6v8.2M4.6 7.6 8 11l3.4-3.4M3.2 13.4h9.6"/></symbol>
 </svg>
 <div class="shell">
@@ -78,6 +80,11 @@
     <section class="pane" id="sec-general" hidden>
       <div class="pane-h"><h2>Общее</h2></div>
       <div class="card">
+        <div class="sl pad"><span>Тема<small>«Как в Windows» переключается вслед за системой</small></span>
+          <span class="seg" id="theme" role="radiogroup" aria-label="Тема">
+            <button data-theme="system" role="radio">Как в Windows</button><button data-theme="light" role="radio">Светлая</button><button data-theme="dark" role="radio">Тёмная</button>
+          </span></div>
+        <div class="hr"></div>
         <div class="sl pad"><span>Запускать вместе с Windows</span><button class="tg" id="autostart" title="Автозапуск"></button></div>
         <div class="hr"></div>
         <div class="sl pad"><span>Новая задача из любого окна<small>Выделенный текст подставится сам</small></span><kbd id="hotkey"></kbd></div>

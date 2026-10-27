@@ -104,6 +104,7 @@ fn main() {
             store::restore_task,
             store::store_status,
             desktop::open_url,
+            desktop::system_theme_light,
             focus::focus_state,
             focus::focus_action,
             focus::focus_mode,
@@ -404,6 +405,7 @@ fn open_settings(app: &AppHandle, section: Option<&str>) -> tauri::Result<()> {
         let _ = win.emit_to(SETTINGS, "settings-section", section);
         return Ok(());
     }
+    let light = settings::light_theme();
     WebviewWindowBuilder::new(app, SETTINGS, WebviewUrl::App("settings.html".into()))
         .additional_browser_args(BROWSER_ARGS)
         .on_navigation(|url| url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost"))
@@ -411,8 +413,9 @@ fn open_settings(app: &AppHandle, section: Option<&str>) -> tauri::Result<()> {
         .inner_size(720.0, 560.0)
         .resizable(false)
         .maximizable(false)
-        .theme(Some(tauri::Theme::Dark))
-        .background_color(tauri::window::Color(23, 23, 26, 255))
+        // Title bar and the colour before the page draws, in the app's theme.
+        .theme(Some(if light { tauri::Theme::Light } else { tauri::Theme::Dark }))
+        .background_color(if light { tauri::window::Color(244, 244, 247, 255) } else { tauri::window::Color(23, 23, 26, 255) })
         .center()
         .build()?;
     Ok(())

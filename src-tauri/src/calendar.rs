@@ -40,8 +40,6 @@ pub const LABEL: &str = "calendar";
 const SYNC_EVERY: Duration = Duration::from_secs(5 * 60);
 /// A request that takes longer is given up on.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
-/// A reminder this long before a meeting.
-const REMIND_MS: i64 = 5 * 60_000;
 const NS: &str = "xmlns:d='DAV:' xmlns:c='urn:ietf:params:xml:ns:caldav' xmlns:a='http://apple.com/ns/ical/'";
 /// Where the secret of an account is kept: this, then its id.
 const CREDENTIAL_PREFIX: &str = "SimpleDeskWidgets/calendar/";
@@ -148,6 +146,9 @@ pub struct Meeting {
     pub event: Event,
     pub calendar: String,
     pub color: String,
+    /// The account and calendar it comes from (for its reminder setting).
+    #[serde(skip)]
+    pub source: (String, String),
 }
 
 /// How an account is doing, for the settings window.
@@ -475,6 +476,7 @@ fn discover(p: &Provider, server: &str, login: &str, password: &str) -> Result<V
             name: pick(".//d:displayname").filter(|n| !n.is_empty()).unwrap_or_else(|| "Календарь".into()),
             color: pick(".//a:calendar-color").map(|c| color(&c)).unwrap_or_default(),
             enabled: true,
+            ..Default::default()
         });
     }
     out.retain(|c| !settings::hidden_calendar(&c.name));
@@ -525,7 +527,7 @@ fn fetch(site: &Site, cal: &CalendarRef, auth: &str, from: i64, to: i64) -> Resu
     for i in 0..nodes.Length().unwrap_or(0) {
         let Some(text) = nodes.Item(i).ok().and_then(|n| n.InnerText().ok()) else { continue };
         for event in ical::parse(&text.to_string(), from, to) {
-            out.push(Meeting { event, calendar: cal.name.clone(), color: cal.color.clone() });
+            out.push(Meeting { event, calendar: cal.name.clone(), color: cal.color.clone(), source: Default::default() });
         }
     }
     Ok(out)
@@ -594,7 +596,7 @@ fn sync_account(account: &CalendarAccount, from: i64, to: i64) -> Result<Vec<(St
             let meetings = fetch_link(&secret).map(|text| {
                 ical::parse(&text, from, to)
                     .into_iter()
-                    .map(|event| Meeting { event, calendar: cal.name.clone(), color: cal.color.clone() })
+                    .map(|event| Meeting { event, calendar: cal.name.clone(), color: cal.color.clone(), source: Default::default() })
                     .collect()
             });
             Ok(vec![(cal.url.clone(), meetings)])
@@ -630,8 +632,12 @@ fn sync(app: &AppHandle) {
                 Ok(calendars) => {
                     for (url, fetched) in calendars {
                         match fetched {
-                            Ok(meetings) => {
-                                st.by_calendar.insert((account.id.clone(), url), meetings);
+                            Ok(mut meetings) => {
+                                let source = (account.id.clone(), url);
+                                for m in &mut meetings {
+                                    m.source = source.clone();
+                                }
+                                st.by_calendar.insert(source, meetings);
                             }
                             // A calendar that failed keeps what it had (shown with its time).
                             Err(e) if !errors.contains(&e) => errors.push(e),
@@ -669,14 +675,35 @@ fn account_title(a: &CalendarAccount) -> String {
     if a.label.is_empty() || a.label == name { name.to_string() } else { format!("{name} · {}", a.label) }
 }
 
-fn remind(due: &Meeting) {
+/// «Через минуту» / «Через 3 минуты» / «Через 12 минут».
+fn lead_text(minutes: i64) -> String {
+    let (n10, n100) = (minutes % 10, minutes % 100);
+    match minutes {
+        ..=1 => "Через минуту".into(),
+        _ if n10 == 1 && n100 != 11 => format!("Через {minutes} минуту"),
+        _ if (2..=4).contains(&n10) && !(12..=14).contains(&n100) => format!("Через {minutes} минуты"),
+        _ => format!("Через {minutes} минут"),
+    }
+}
+
+/// Minutes before each calendar's meetings their reminder comes.
+fn remind_minutes() -> HashMap<(String, String), u32> {
+    settings::get()
+        .calendar_accounts
+        .into_iter()
+        .flat_map(|a| a.calendars.into_iter().map(move |c| ((a.id.clone(), c.url), c.remind)))
+        .collect()
+}
+
+/// `minutes`: how long is really left (a meeting may turn up later than its reminder's time).
+fn remind(due: &Meeting, minutes: i64) {
     let at = chrono::DateTime::from_timestamp_millis(due.event.start)
         .map(|d| d.with_timezone(&chrono::Local).format("%H:%M").to_string())
         .unwrap_or_default();
     let place = if due.event.link.is_some() { " · созвон" } else if due.event.location.is_empty() { "" } else { " · место указано" };
     let _ = Toast::new(APP_ID)
         .title(&due.event.title)
-        .text1(&format!("Через 5 минут, в {at}{place}"))
+        .text1(&format!("{}, в {at}{place}", lead_text(minutes)))
         .sound(Some(tauri_winrt_notification::Sound::Reminder))
         .show();
 }
@@ -701,10 +728,17 @@ pub fn spawn(app: AppHandle) {
             thread::sleep(Duration::from_secs(20));
             let now = crate::store::now_ms();
             let meetings = state().meetings;
+            let minutes = remind_minutes();
             for m in &meetings {
                 let lead = m.event.start - now;
-                if !m.event.all_day && lead > 0 && lead <= REMIND_MS && reminded.insert((m.event.id.clone(), m.event.start)) {
-                    remind(m);
+                let before = minutes.get(&m.source).copied().unwrap_or(settings::DEFAULT_REMIND);
+                if !m.event.all_day
+                    && before > 0
+                    && lead > 0
+                    && lead <= i64::from(before) * 60_000
+                    && reminded.insert((m.event.id.clone(), m.event.start))
+                {
+                    remind(m, (lead + 59_999) / 60_000);
                 }
             }
             // Forget reminders of meetings that are gone or long started.
@@ -786,7 +820,7 @@ fn connect(app: &AppHandle, r: Connect) -> Result<CalendarAccount, String> {
             let url = link_url(&secret)?;
             let text = fetch_link(&url)?;
             let name = link_name(&text).unwrap_or_else(|| p.name.to_string());
-            let cal = CalendarRef { url: LINK_CALENDAR.into(), name: name.clone(), color: String::new(), enabled: true };
+            let cal = CalendarRef { url: LINK_CALENDAR.into(), name: name.clone(), enabled: true, ..Default::default() };
             (name, host_of(&url).unwrap_or_default(), vec![cal], url)
         }
     };
@@ -816,6 +850,7 @@ fn connect(app: &AppHandle, r: Connect) -> Result<CalendarAccount, String> {
             for cal in &mut next.calendars {
                 if let Some(seen) = old.calendars.iter().find(|o| o.url == cal.url) {
                     cal.enabled = seen.enabled;
+                    cal.remind = seen.remind;
                 }
             }
             *old = next;
@@ -876,6 +911,15 @@ pub fn calendar_refresh() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reminders_say_how_long_is_left() {
+        let said: Vec<String> = [1, 2, 5, 11, 12, 21, 22, 30].into_iter().map(lead_text).collect();
+        assert_eq!(said, [
+            "Через минуту", "Через 2 минуты", "Через 5 минут", "Через 11 минут",
+            "Через 12 минут", "Через 21 минуту", "Через 22 минуты", "Через 30 минут",
+        ]);
+    }
 
     #[test]
     fn colors_normalize() {

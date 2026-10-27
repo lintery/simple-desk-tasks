@@ -74,7 +74,7 @@ const NOT_DATE_BEFORE = /(?:[a-z][\w+#-]*|верси[яиюей]|пункт[а-�
 /** Bare times/dates are accepted when they sit right next to another recognised part
  *  (optionally only of the given kind). Spans are [start, end, kind]. */
 const nextToSpan = (spans, text, start, end, kind = null) =>
-  spans.some(([s, e, k]) => (!kind || k === kind)
+  spans.some(([s, e, k]) => (kind ? k === kind : k !== 'important') // «!» vouches for nothing
     && ((e <= start && !text.slice(e, start).trim()) || (s >= end && !text.slice(end, s).trim())));
 const WD_SEP = '(?:\\s*(?:,|и)\\s*|\\s+)';
 // A bare weekday right before/after a bare hour («созвон пт в 10 у шефа») makes it a time.
@@ -82,6 +82,9 @@ const WD_BEFORE = new RegExp(`(?:^|[^\\p{L}\\d])(?:${WD_IN})\\s*$`, 'iu');
 const WD_AFTER = new RegExp(`^\\s*(?:${WD_IN})(?![\\p{L}\\d])`, 'iu');
 
 const RULES = [
+  // ---- «!» on its own: an important task («! отчёт к пятнице», «отчёт !!») ----
+  { kind: 'important', re: /(?<!\S)!{1,3}(?!\S)/gu, make: () => true },
+
   // ---- repeat ----
   { kind: 'repeat', re: rx('(?:каждый\\s+день|ежедневно)'), make: () => ({ kind: 'daily' }) },
   { kind: 'repeat', re: rx('(?:по\\s+будням|каждый\\s+будний\\s+день)'), make: () => ({ kind: 'weekdays' }) },
@@ -229,8 +232,9 @@ function anchorRule(repeat, due) {
 /**
  * @param anchor the task's current date when re-parsing an existing task: a bare
  *   recurrence («каждый год») then keeps that date instead of starting today.
- * @returns {{title, due, time, repeat, chips, hasDate}} `hasDate` is true when the
- *   text named a date or a recurrence (not just a time).
+ * @returns {{title, due, time, repeat, important, chips, spans, hasDate}} `hasDate`
+ *   is true when the text named a date or a recurrence (not just a time); `spans`
+ *   are the [start, end, kind] parts of `text` that were understood.
  */
 export function parse(text, now = new Date(), anchor = null) {
   const c = { now, today: toDateStr(now), time: toTimeStr(now) };
@@ -260,11 +264,12 @@ export function parse(text, now = new Date(), anchor = null) {
   }
 
   let title = text;
-  for (const [s, e] of spans.sort((a, b) => b[0] - a[0])) title = title.slice(0, s) + ' ' + title.slice(e);
+  for (const [s, e] of [...spans].sort((a, b) => b[0] - a[0])) title = title.slice(0, s) + ' ' + title.slice(e);
   title = title.replace(/\s+/g, ' ').replace(/\s+([,.;:!?])/g, '$1').replace(/^[\s,.;:—-]+|[\s,;:—-]+$/gu, '').trim();
-  if (!title) return { title: text.trim(), due: null, time: null, repeat: null, chips: [], hasDate: false };
+  if (!title) return { title: text.trim(), due: null, time: null, repeat: null, important: false, chips: [], spans: [], hasDate: false };
 
   let { date: due = null, time = null, repeat = null } = found;
+  const important = !!found.important;
   const explicitDate = due !== null;
   if (repeat && !due) {
     if (anchor) {
@@ -291,5 +296,7 @@ export function parse(text, now = new Date(), anchor = null) {
   if (due) chips.push({ kind: 'date', label: dayLabel(due, c.today) });
   if (time) chips.push({ kind: 'time', label: time });
   if (repeat) chips.push({ kind: 'repeat', label: repeatLabel(repeat) });
-  return { title, due, time, repeat, chips, hasDate: explicitDate || !!repeat };
+  if (important) chips.push({ kind: 'important', label: 'важное' });
+  spans.sort((a, b) => a[0] - b[0]);
+  return { title, due, time, repeat, important, chips, spans, hasDate: explicitDate || !!repeat };
 }

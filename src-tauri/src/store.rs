@@ -55,6 +55,42 @@ pub struct Task {
     /// `"<due> <time>"` of the occurrence a reminder was already shown for.
     #[serde(default)]
     pub notified: Option<String>,
+    /// Flagged as important: marked and listed first within its day.
+    #[serde(default)]
+    pub important: bool,
+    /// A checklist inside the task.
+    #[serde(default)]
+    pub subtasks: Vec<Subtask>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Subtask {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub done: bool,
+}
+
+/// A task holds at most this many subtasks.
+const MAX_SUBTASKS: usize = 50;
+
+/// Subtasks as the page sent them, checked: each needs an id and some text.
+fn clean_subtasks(v: &Value) -> Result<Vec<Subtask>, String> {
+    let list: Vec<Subtask> = serde_json::from_value(v.clone()).map_err(|_| NOT_CHANGED.to_string())?;
+    if list.len() > MAX_SUBTASKS {
+        return Err(format!("В задаче может быть не больше {MAX_SUBTASKS} подзадач"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    list.into_iter()
+        .map(|s| {
+            let id = s.id.trim().to_string();
+            if id.is_empty() || id.len() > 40 || !seen.insert(id.clone()) {
+                return Err(NOT_CHANGED.to_string());
+            }
+            Ok(Subtask { id, title: clean_title(&s.title)?, done: s.done })
+        })
+        .collect()
 }
 
 #[derive(Serialize, Default)]
@@ -401,6 +437,7 @@ pub fn add_task(
     due: Option<String>,
     time: Option<String>,
     repeat: Option<Value>,
+    important: Option<bool>,
 ) -> Result<Task, String> {
     let due = opt_string(&due.map(Value::String).unwrap_or(Value::Null), valid_date, "due")?;
     let time = opt_string(&time.map(Value::String).unwrap_or(Value::Null), valid_time, "time")?;
@@ -415,6 +452,8 @@ pub fn add_task(
         created: now_ms(),
         order: None,
         notified: None,
+        important: important.unwrap_or(false),
+        subtasks: Vec::new(),
     };
     normalize(&mut task);
     mutate(&app, &store, |tasks| {
@@ -423,8 +462,8 @@ pub fn add_task(
     })
 }
 
-/// Applies a partial update. Allowed keys: title, due, time, repeat, done;
-/// `null` clears an optional field.
+/// Applies a partial update. Allowed keys: title, due, time, repeat, done,
+/// order, important, subtasks (the whole list); `null` clears an optional field.
 #[tauri::command]
 pub fn update_task(
     app: AppHandle,
@@ -451,6 +490,8 @@ pub fn update_task(
                     next.done = v.as_bool().ok_or(NOT_CHANGED)?;
                     next.done_at = if next.done { Some(now_ms()) } else { None };
                 }
+                "important" => next.important = v.as_bool().ok_or(NOT_CHANGED)?,
+                "subtasks" => next.subtasks = clean_subtasks(v)?,
                 _ => return Err(NOT_CHANGED.into()),
             }
         }
@@ -479,6 +520,7 @@ pub fn restore_task(app: AppHandle, store: State<Store>, task: Task) -> Result<(
     task.title = clean_title(&task.title)?;
     task.due = opt_string(&task.due.map(Value::String).unwrap_or(Value::Null), valid_date, "due")?;
     task.time = opt_string(&task.time.map(Value::String).unwrap_or(Value::Null), valid_time, "time")?;
+    task.subtasks = clean_subtasks(&serde_json::to_value(&task.subtasks).unwrap_or(Value::Null))?;
     normalize(&mut task);
     mutate(&app, &store, |tasks| {
         if tasks.iter().any(|t| t.id == task.id) {
@@ -507,5 +549,26 @@ mod tests {
         assert_eq!(mended, 3);
         assert!(!tasks[1].id.is_empty());
         assert!(parse_tasks(b"not json").is_err());
+    }
+
+    #[test]
+    fn subtasks_are_checked() {
+        let ok = serde_json::json!([{"id":"a","title":"  купить  ","done":true},{"id":"b","title":"позвонить"}]);
+        let list = clean_subtasks(&ok).unwrap();
+        assert_eq!(list[0], Subtask { id: "a".into(), title: "купить".into(), done: true });
+        assert!(!list[1].done);
+        assert!(clean_subtasks(&serde_json::json!([{"id":"a","title":"x"},{"id":"a","title":"y"}])).is_err());
+        assert!(clean_subtasks(&serde_json::json!([{"id":"a","title":"  "}])).is_err());
+        assert!(clean_subtasks(&serde_json::json!([{"id":"","title":"x"}])).is_err());
+        assert!(clean_subtasks(&serde_json::json!("junk")).is_err());
+        let many: Vec<Value> = (0..=MAX_SUBTASKS).map(|i| serde_json::json!({"id": i.to_string(), "title": "x"})).collect();
+        assert!(clean_subtasks(&Value::Array(many)).is_err());
+    }
+
+    #[test]
+    fn old_tasks_have_no_flag_and_no_subtasks() {
+        let (tasks, mended) = parse_tasks(br#"{"tasks":[{"id":"a","title":"t","created":1}]}"#).unwrap();
+        assert_eq!(mended, 0);
+        assert!(!tasks[0].important && tasks[0].subtasks.is_empty());
     }
 }

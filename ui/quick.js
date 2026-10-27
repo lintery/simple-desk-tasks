@@ -1,7 +1,9 @@
 // Global quick-add (Ctrl+Alt+Space): one line, Russian dates understood, Enter adds.
 
+import './lib/theme.js';
 import { api, listenMine } from './lib/api.js';
-import { I, esc } from './lib/icons.js';
+import { attachHilite } from './lib/hilite.js';
+import { I, chipHtml, esc } from './lib/icons.js';
 import { bucketOf, clock } from './lib/model.js';
 import { parse } from './lib/nlp.js';
 
@@ -10,6 +12,8 @@ const input = document.getElementById('q');
 const chipsEl = document.getElementById('chips');
 const destEl = document.getElementById('dest');
 document.getElementById('tile').innerHTML = I.plus;
+// «завтра», «в 15», «!» are tinted right in the text as they're understood.
+const hilite = attachHilite(input, (text) => parse(text).spans);
 
 function draft() {
   const text = input.value.trim();
@@ -19,11 +23,9 @@ function draft() {
 }
 
 function renderDraft() {
+  hilite();
   const d = draft();
-  chipsEl.innerHTML = (d?.chips ?? []).map((chip) => {
-    const icon = chip.kind === 'date' ? I.cal : chip.kind === 'time' ? I.clock : I.rep;
-    return `<span class="chip">${icon}${esc(chip.label)}</span>`;
-  }).join('');
+  chipsEl.innerHTML = (d?.chips ?? []).map(chipHtml).join('');
   destEl.innerHTML = `${I.arrow}<b>${TITLES[d?.dest ?? 'nodate']}</b>`;
 }
 

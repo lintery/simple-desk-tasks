@@ -23,7 +23,9 @@ export function bucketOf(t, c) {
 }
 
 const byCreated = (a, b) => a.created - b.created;
+/** Important ones first; then the timed ones by time, the rest as added. */
 const byTimeThenCreated = (a, b) => {
+  if (!!a.important !== !!b.important) return a.important ? -1 : 1;
   if (a.time && b.time) return a.time.localeCompare(b.time) || byCreated(a, b);
   if (a.time) return -1;
   if (b.time) return 1;
@@ -47,7 +49,15 @@ export function todayView(tasks, c) {
 export const orderKey = (t) => t.order ?? t.created;
 
 export function nodateView(tasks, c) {
-  return tasks.filter((t) => bucketOf(t, c) === 'nodate').sort((a, b) => orderKey(a) - orderKey(b));
+  return tasks
+    .filter((t) => bucketOf(t, c) === 'nodate')
+    .sort((a, b) => (!!b.important - !!a.important) || orderKey(a) - orderKey(b));
+}
+
+/** «2/5»: how much of a task's checklist is done, or null without one. */
+export function subtaskProgress(t) {
+  const list = t.subtasks ?? [];
+  return list.length ? { done: list.filter((s) => s.done).length, total: list.length } : null;
 }
 
 /** Upcoming widget: [{date, label, tasks}] ordered by date. */

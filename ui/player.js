@@ -2,6 +2,7 @@
 // seeking and the app's own volume. Data comes from media.rs; the window is
 // shown and hidden from there too.
 
+import './lib/theme.js';
 import { api, listenAll, listenMine } from './lib/api.js';
 import { initBackdrop } from './lib/backdrop.js';
 import { buildWave } from './lib/wave.js';

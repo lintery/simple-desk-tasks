@@ -225,3 +225,60 @@ test('next occurrence never lands in the past', () => {
   assert.equal(nextOccurrence({ due: '2026-10-23', repeat: { kind: 'weekdays' } }, c), '2026-10-26');
   assert.equal(nextOccurrence({ due: '2026-01-31', repeat: { kind: 'monthly', day: 31 } }, c), '2026-10-31');
 });
+
+test('a lone "!" flags the task; "!" inside words or at the end of a sentence does not', () => {
+  const r = p('! отчёт завтра в 15');
+  assert.deepEqual([r.title, r.important, r.due, r.time], ['отчёт', true, '2026-10-24', '15:00']);
+  assert.equal(p('отчёт !!').important, true);
+  assert.equal(p('отчёт !!').title, 'отчёт');
+  assert.equal(p('Позвонить маме!').important, false);
+  assert.equal(p('Позвонить маме!').title, 'Позвонить маме!');
+  assert.equal(p('купить !важное').important, false);
+  // «!» doesn't make a bare number next to it a time.
+  assert.equal(p('кофе ! в 2 раза').time, null);
+});
+
+test('spans mark what was understood, in the text as typed', () => {
+  const text = 'созвон завтра в 15 !';
+  const kinds = p(text).spans.map(([s, e, k]) => [text.slice(s, e), k]);
+  assert.deepEqual(kinds, [['завтра', 'date'], ['в 15', 'time'], ['!', 'important']]);
+  assert.deepEqual(p('просто текст').spans, []);
+});
+
+test('important tasks come first within a day', () => {
+  const c = clock(NOW);
+  const t = (id, extra) => ({ id, title: id, due: '2026-10-23', done: false, created: id.charCodeAt(0), ...extra });
+  const v = todayView([t('a', { time: '10:00' }), t('b'), t('c', { important: true }), t('d', { important: true, time: '11:00' })], c);
+  assert.deepEqual(v.active.map((x) => x.id), ['d', 'c', 'a', 'b']);
+});
+
+import { parseTime, patchOf, toggleWeekday, withDate, withRepeat, withTime } from '../ui/lib/schedule.js';
+
+test('date picker: «every Monday» in two clicks, the date follows the rule', () => {
+  const c = clock(NOW); // Fri 23 Oct 2026, 09:42
+  let s = { due: '2026-10-24', time: null, repeat: null };
+  s = withRepeat(s, 'weekly', c); // Saturday's weekday
+  assert.deepEqual(s.repeat, { kind: 'weekly', days: [6] });
+  s = toggleWeekday(s, 1, c); // + Monday
+  s = toggleWeekday(s, 6, c); // − Saturday
+  assert.deepEqual([s.repeat.days, s.due], [[1], '2026-10-26']);
+  assert.deepEqual(toggleWeekday(s, 1, c), s); // the last day stays
+  // A date picked: a one-day weekly rule moves its day there; a monthly one its day.
+  assert.deepEqual(withDate(s, '2026-10-29', c).repeat.days, [4]);
+  const m = withRepeat({ due: '2026-10-31', time: null, repeat: null }, 'monthly', c);
+  assert.deepEqual(withDate(m, '2026-11-05', c).repeat, { kind: 'monthly', day: 5 });
+  // Weekdays: a Saturday picked lands on Monday.
+  assert.equal(withDate(withRepeat(s, 'weekdays', c), '2026-10-31', c).due, '2026-11-02');
+});
+
+test('date picker: time and no date', () => {
+  const c = clock(NOW);
+  assert.deepEqual(withTime({ due: null, time: null, repeat: null }, '15:00', c), { due: '2026-10-23', time: '15:00', repeat: null });
+  assert.equal(withTime({ due: null, time: null, repeat: null }, '08:00', c).due, '2026-10-24'); // gone by today
+  assert.equal(withDate({ due: '2026-10-25', time: '08:00', repeat: null }, '2026-10-23', c).time, null);
+  assert.deepEqual(withDate({ due: '2026-10-25', time: '15:00', repeat: { kind: 'daily' } }, null, c), { due: null, time: null, repeat: null });
+  assert.equal(withRepeat({ due: null, time: null, repeat: null }, 'daily', c).due, '2026-10-23');
+  assert.deepEqual(['15', '9.30', '0930', '18:45', '25', '7:61', 'abc'].map(parseTime), ['15:00', '09:30', '09:30', '18:45', null, null, null]);
+  assert.deepEqual(patchOf({ due: 'a', time: null, repeat: null }, { due: 'a', time: '10:00', repeat: { kind: 'daily' } }),
+    { time: '10:00', repeat: { kind: 'daily' } });
+});

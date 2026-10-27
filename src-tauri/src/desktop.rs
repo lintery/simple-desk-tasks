@@ -122,6 +122,20 @@ pub fn register_toast_app(data_dir: &Path) {
     let _ = hkcu.delete_subkey_all(format!(r"Software\Classes\AppUserModelId\{OLD_APP_ID}"));
 }
 
+/// Windows is in light mode for apps (Settings → Personalisation → Colours).
+pub fn system_light() -> bool {
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+        .and_then(|k| k.get_value::<u32, _>("AppsUseLightTheme"))
+        .is_ok_and(|v| v != 0)
+}
+
+/// For the pages: whether Windows is in light mode now (they follow it on «system»).
+#[tauri::command]
+pub fn system_theme_light() -> bool {
+    system_light()
+}
+
 /// Starts the app with Windows, or stops doing so. Only the installed copy
 /// (`SimpleDeskWidgets.exe`, see tools/install.ps1) touches it; raw build
 /// output (`simple-desk-widgets.exe`) never does.

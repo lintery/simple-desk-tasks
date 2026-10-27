@@ -11,7 +11,18 @@ export const I = {
   arrow: svg('<path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/>'),
   plus: svg('<path d="M8 3.5v9M3.5 8h9"/>'),
   check: svg('<path d="M3.5 8.4 6.6 11.3 12.5 4.9"/>'),
+  flag: svg('<path d="M4 14V2.8M4 3.2h7.6l-1.8 2.9 1.8 2.9H4"/>'),
+  list: svg('<path d="M6.5 4.5h6.5M6.5 8h6.5M6.5 11.5h6.5"/><path d="m2.6 4.5.8.8 1.4-1.6M2.6 8l.8.8 1.4-1.6M2.6 11.5l.8.8 1.4-1.6"/>'),
+  more: svg('<circle cx="3.6" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.4" cy="8" r=".9"/>'),
+  x: svg('<path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/>'),
+  task: svg('<rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="m5.4 8.1 1.8 1.8 3.5-3.8"/>'),
   tick: '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.2 5.3 4.2 7.2 7.9 3.1"/></svg>',
+};
+
+/** A chip of what the parser understood («завтра», «15:00», «каждый пн», «важное»). */
+export const chipHtml = (chip) => {
+  const icon = { date: I.cal, time: I.clock, repeat: I.rep, important: I.flag }[chip.kind] ?? '';
+  return `<span class="chip ${chip.kind}">${icon}${esc(chip.label)}</span>`;
 };
 
 export const esc = (s) =>

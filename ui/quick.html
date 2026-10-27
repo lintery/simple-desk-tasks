@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Новая задача</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('theme')||'dark'}catch(e){}</script>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="quick.css">
 <script type="module" src="quick.js"></script>
@@ -13,7 +14,7 @@
   <div class="qa-chips" id="chips"></div>
   <div class="qa-ft">
     <span class="dest" id="dest"></span><span class="sp"></span>
-    <span><kbd>↵</kbd>добавить</span><span><kbd>Shift ↵</kbd>и ещё одну</span><span><kbd>Esc</kbd></span>
+    <span title="Отдельный «!» в тексте помечает задачу важной"><kbd>!</kbd>важное</span><span><kbd>↵</kbd>добавить</span><span><kbd>Shift ↵</kbd>и ещё одну</span><span><kbd>Esc</kbd></span>
   </div>
 </div>
 </body>

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Календарь</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('theme')||'dark'}catch(e){}</script>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="calendar.css">
 <script type="module" src="calendar.js"></script>
@@ -17,6 +18,8 @@
   <symbol id="i-cal" viewBox="0 0 16 16"><path d="M3.4 3.4h9.2a1.2 1.2 0 0 1 1.2 1.2v8.2a1.2 1.2 0 0 1-1.2 1.2H3.4a1.2 1.2 0 0 1-1.2-1.2V4.6a1.2 1.2 0 0 1 1.2-1.2ZM2.2 6.8h11.6M5.4 1.8v3M10.6 1.8v3"/><path class="f" d="M4.8 9h1.4v1.4H4.8ZM7.3 9h1.4v1.4H7.3ZM9.8 9h1.4v1.4H9.8ZM4.8 11.3h1.4v1.4H4.8ZM7.3 11.3h1.4v1.4H7.3Z"/></symbol>
   <symbol id="i-alert" viewBox="0 0 16 16"><path d="M7.1 2.9 1.9 12a1 1 0 0 0 .87 1.5h10.46A1 1 0 0 0 14.1 12L8.9 2.9a1 1 0 0 0-1.8 0ZM8 6.4v3.1M8 11.5v.1"/></symbol>
   <symbol id="i-dot" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/></symbol>
+  <symbol id="i-task" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M8 5.4v5.2M5.4 8h5.2"/></symbol>
+  <symbol id="i-ok" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="m5.4 8.1 1.8 1.8 3.5-3.8"/></symbol>
 </svg>
 <div class="w cal" id="w">
   <canvas class="wall"></canvas>

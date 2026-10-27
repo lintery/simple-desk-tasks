@@ -2,6 +2,7 @@
 // in focus.rs (phases end, chime and notify even while this page is throttled);
 // this page draws it and plays the sounds.
 
+import './lib/theme.js';
 import { api, listenAll, listenMine } from './lib/api.js';
 import { initBackdrop } from './lib/backdrop.js';
 import { SOUNDS, createAudio } from './lib/sounds.js';
@@ -119,7 +120,7 @@ function render() {
   }
 
   const today = (t.day === localDay() ? t.today : 0) + (t.phase === 'focus' ? t.total - rest : 0);
-  setHTML($('today'), `сегодня <em>${minutes(today)}</em>`);
+  setHTML($('today-v'), `сегодня <em>${minutes(today)}</em>`);
 
   for (const b of $('modes').children) {
     b.classList.toggle('sel', b.dataset.mode === t.mode);
@@ -189,10 +190,19 @@ function renderStats() {
     `<div><small>Лучший день</small><b>${minutes(best)}</b></div></div>`);
 }
 
-$('today').addEventListener('click', () => {
-  w.classList.toggle('show-stats');
+/** The week's statistics in place of the sound tiles: opened by the
+ *  «сегодня …» button in the header, closed by it or by «‹ Статистика». */
+function showStats(on) {
+  w.classList.toggle('show-stats', on);
+  $('today').classList.toggle('on', on);
+  $('today').title = on ? 'Закрыть статистику, вернуться к звукам' : 'Статистика за неделю';
+  $('today').setAttribute('aria-pressed', on ? 'true' : 'false');
   renderStats();
-});
+}
+
+$('today').addEventListener('click', () => showStats(!w.classList.contains('show-stats')));
+$('stats-back').addEventListener('click', () => showStats(false));
+showStats(false);
 
 // ---------- sounds ----------
 

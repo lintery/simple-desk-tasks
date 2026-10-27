@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Задачи</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('theme')||'dark'}catch(e){}</script>
 <link rel="stylesheet" href="style.css">
 <script type="module" src="app.js"></script>
 </head>
@@ -19,7 +20,7 @@
   <label class="add" id="add">
     <span class="plus"></span>
     <input id="add-input" autocomplete="off" spellcheck="false">
-    <kbd id="add-kbd">N</kbd>
+    <button class="add-go" id="add-go" type="button" title="Добавить (Enter). Клавиша N — сразу к этому полю" aria-label="Добавить задачу"></button>
     <div class="parsed" id="parsed"></div>
   </label>
 </div>

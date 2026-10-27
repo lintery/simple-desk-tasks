@@ -1,8 +1,7 @@
 /* «Календарь»: meetings from the connected calendars, a tall column on the right. */
-:root{--ac-txt:#b3bfff}
 .cal button svg{pointer-events:none}
 /* header: sync status where the other widgets keep their counters */
-.sync{gap:5px;font-size:11.5px;color:var(--t4);cursor:pointer;border-radius:4px;padding:2px 4px}
+.sync{gap:5px;font-size:11.5px;color:var(--t4);cursor:pointer;border-radius:4px;padding:2px 4px;margin-right:-4px} /* text on the list's edge */
 .sync:hover{color:var(--t2)}
 .sync .i{width:12px;height:12px}
 .sync.busy .i{animation:spin 1s linear infinite}
@@ -11,7 +10,7 @@
 .sync.err::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--od);box-shadow:0 0 0 3px var(--od-soft)}
 
 /* month grid */
-.mo{flex:none;padding:0 14px 10px}
+.mo{flex:none;padding:0 calc(14px + var(--sb, 0px)) 10px 14px}
 .mo-hd{display:flex;align-items:center;height:30px;padding-left:6px}
 .mo-hd b{font:600 13px/18px var(--font-d);letter-spacing:-.005em}
 .mo-hd span{margin-left:6px;font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
@@ -57,42 +56,54 @@
   white-space:nowrap;font-variant-numeric:tabular-nums}
 .ev-pr::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ac);box-shadow:0 0 0 3px var(--ac-soft)}
 .ev-pr em{font-style:normal;font-weight:400;color:var(--t3)}
-.ev-pr .pb{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden}
+.ev-pr .pb{flex:1;height:3px;border-radius:2px;background:rgba(var(--fg),.08);overflow:hidden}
 .ev-pr .pb i{display:block;height:100%;border-radius:2px;background:var(--ac)}
 /* next upcoming: accent card (same recipe as .tile.on in focus.css) */
 .ev.next{margin:2px 0;padding-top:9px;padding-bottom:9px;
-  background:linear-gradient(160deg,rgba(142,159,255,.17),rgba(142,159,255,.06));
-  box-shadow:inset 0 0 0 1px rgba(142,159,255,.32),inset 0 1px 0 rgba(255,255,255,.05)}
+  background:linear-gradient(160deg,rgba(var(--ac-rgb),.17),rgba(var(--ac-rgb),.06));
+  box-shadow:inset 0 0 0 1px rgba(var(--ac-rgb),.32),inset 0 1px 0 rgba(var(--fg),.05)}
 .ev.next .ev-t b{color:var(--ac-txt);font-weight:600}
 .ev.next .ev-ttl{font-weight:600}
 /* one line: in a narrow column the button by the countdown keeps only its icon (below) */
 .ev-act{display:flex;align-items:center;gap:8px;margin-top:8px;min-width:0;container-type:inline-size}
 .cd{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ac-txt);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cd::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ac);box-shadow:0 0 0 3px var(--ac-soft);animation:beat 2s ease-in-out infinite}
-@keyframes beat{50%{box-shadow:0 0 0 5px rgba(142,159,255,.06)}}
+@keyframes beat{50%{box-shadow:0 0 0 5px rgba(var(--ac-rgb),.06)}}
 .join{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px 0 9px;border-radius:var(--r-chip);
   font-size:12px;font-weight:600;color:var(--ink);background:var(--ac);box-shadow:0 4px 12px -4px var(--ac-line);transition:transform var(--d1) var(--e-out)}
 .join:active{transform:scale(.96)}
 .join .i{width:13px;height:13px;stroke-width:1.6}
-/* only beside the countdown: alone (a meeting going on) the label fits */
-@container (max-width:250px){
+/* only beside the countdown and «to task» (26px + gap): alone (a meeting
+   going on) the label fits */
+@container (max-width:285px){
   .cd ~ .join{width:30px;padding:0;justify-content:center}
   .cd ~ .join span{display:none}
 }
 .ev.now .ev-act{margin-top:6px}
+/* «to my tasks»: shows on hover (and stays, ticked, once done) */
+.to-task{flex:none;align-self:center;width:28px;height:28px;display:grid;place-items:center;border-radius:var(--r-chip);color:var(--t3);
+  opacity:0;transition:opacity var(--d1),background var(--d1),color var(--d1)}
+.to-task .i{width:15px;height:15px}
+.ev:hover .to-task,.to-task:focus-visible{opacity:1}
+.to-task:hover{background:var(--raise-2);color:var(--t1)}
+.to-task.did{opacity:1;color:var(--ac);cursor:default}
+.to-task.did:hover{background:none;color:var(--ac)}
+/* on the action line: right-aligned, as tall as «Подключиться», just before it */
+.ev-act .to-task{width:26px;height:26px;margin-left:auto}
+.ev-act .to-task+.join{margin-left:0}
 /* the small one on other meetings with a link */
-.join.sm{flex:none;align-self:center;width:28px;height:28px;padding:0;justify-content:center;color:var(--t2);background:rgba(255,255,255,.07);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
+.join.sm{flex:none;align-self:center;width:28px;height:28px;padding:0;justify-content:center;color:var(--t2);background:rgba(var(--fg),.07);
+  box-shadow:inset 0 0 0 1px rgba(var(--fg),.06);
   transition:background var(--d1),color var(--d1),box-shadow var(--d1),transform var(--d1) var(--e-out)}
 .join.sm:hover{color:var(--ink);background:var(--ac);box-shadow:0 4px 12px -4px var(--ac-line)}
 .join.sm .i{width:14px;height:14px}
 
 /* states */
 .cta{flex:none;margin:4px 12px 8px;padding:14px;border-radius:8px;background:var(--raise);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.04),inset 0 1px 0 rgba(255,255,255,.04)}
+  box-shadow:inset 0 0 0 1px rgba(var(--fg),.04),inset 0 1px 0 rgba(var(--fg),.04)}
 .cta-top{display:flex;gap:12px}
 .cta-ic{flex:none;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--ac);background:var(--ac-soft);
-  box-shadow:inset 0 0 0 1px rgba(142,159,255,.22)}
+  box-shadow:inset 0 0 0 1px rgba(var(--ac-rgb),.22)}
 .cta-ic .i{width:17px;height:17px}
 .cta h3{font:600 13px/18px var(--font-d)}
 .cta p{margin-top:2px;font-size:12px;line-height:16px;color:var(--t3)}
@@ -104,7 +115,7 @@
 .banner.err .i{margin-top:1px;color:var(--od)}
 .banner.err b{display:block;font-weight:600;color:var(--od)}
 .banner .lnk{margin-left:auto;flex:none;align-self:center;font-size:11.5px;font-weight:600;color:var(--t1);padding:3px 8px;border-radius:4px;
-  background:rgba(255,255,255,.07)}
+  background:rgba(var(--fg),.07)}
 .free{display:flex;align-items:center;gap:12px;padding:6px 12px 6px 14px}
 .free::before{content:"";flex:none;width:16px;height:16px;border-radius:50%;border:1.5px dashed var(--t4)}
 .free div{font-size:13px;line-height:18px;color:var(--t2)}

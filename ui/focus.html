@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Фокус</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('theme')||'dark'}catch(e){}</script>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="focus.css">
 <script type="module" src="focus.js"></script>
@@ -16,6 +17,8 @@
   <symbol id="i-reset" viewBox="0 0 16 16"><path d="M3.3 8.2A4.8 4.8 0 1 0 4.9 4.4M4.6 2.2v2.6h2.6"/></symbol>
   <symbol id="i-spk" viewBox="0 0 16 16"><path d="M2.8 6.2h2.1l3.2-2.6v8.8L4.9 9.8H2.8a.5.5 0 0 1-.5-.5V6.7a.5.5 0 0 1 .5-.5ZM10.6 6.1a2.7 2.7 0 0 1 0 3.8M12.4 4.3a5.2 5.2 0 0 1 0 7.4"/></symbol>
   <symbol id="i-spk-off" viewBox="0 0 16 16"><path d="M2.8 6.2h2.1l3.2-2.6v8.8L4.9 9.8H2.8a.5.5 0 0 1-.5-.5V6.7a.5.5 0 0 1 .5-.5ZM10.6 6.3l3.2 3.4M13.8 6.3l-3.2 3.4"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M9.8 3.6 5.4 8l4.4 4.4"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 16 16"><path d="M3 13.2h10M4.6 13.2V9.4M8 13.2V5.2M11.4 13.2V7.6"/></symbol>
   <!-- sounds, 20 grid -->
   <symbol id="cloud" viewBox="0 0 20 20"><path d="M5.5 12h9.3a3.2 3.2 0 0 0 .4-6.38A5 5 0 0 0 5.6 6.4 2.8 2.8 0 0 0 5.5 12Z"/></symbol>
   <symbol id="s-rain-light" viewBox="0 0 20 20"><use href="#cloud"/><path d="M7.2 15.2v.1M12.4 15.6v.1M9.8 18.2v.1" stroke-width="1.9"/></symbol>
@@ -54,7 +57,9 @@
     </div>
   </div>
   <div class="fx-main">
-    <div class="fx-hd"><h2>Фокус</h2><span class="today" id="today" title="Статистика за неделю"></span></div>
+    <div class="fx-hd"><h2>Фокус</h2>
+      <span class="today" id="today-v"></span>
+      <button class="stats-btn" id="today" title="Статистика за неделю"><svg class="i"><use href="#i-chart"/></svg>Статистика</button></div>
     <div class="fx-modes" id="modes">
       <button class="mode" data-mode="pomodoro"><b>Помодоро</b><span>25 / 5</span></button>
       <button class="mode" data-mode="focus50"><b>Фокус</b><span>50 / 10</span></button>
@@ -70,7 +75,8 @@
   <div class="fx-sep"></div>
   <div class="fx-snd" id="snd">
     <div class="snd-hd">
-      <b>Звуки</b>
+      <b class="snd-title">Звуки</b>
+      <button class="stats-back" id="stats-back" title="Вернуться к звукам"><svg class="i"><use href="#i-back"/></svg>Статистика за неделю</button>
       <div class="snd-now"><div class="wave still" id="wave"></div><span id="now"></span></div>
       <div class="vol">
         <button class="ib" id="mute"><svg class="i"><use href="#i-spk"/></svg></button>

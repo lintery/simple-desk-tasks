@@ -2,6 +2,7 @@
 // updates — one section at a time. Every change is saved at once
 // (settings.rs) and reaches the widgets.
 
+import './lib/theme.js';
 import { api, listenAll, listenMine } from './lib/api.js';
 import { esc } from './lib/icons.js';
 
@@ -14,6 +15,8 @@ const MODES = [['pomodoro', 'Помодоро', true], ['focus50', 'Фокус',
 /** Step, min and max of each duration. */
 const STEPS = { focus: [5, 5, 240], short: [1, 1, 60], long: [5, 5, 90], every: [1, 1, 12] };
 const SECTIONS = ['calendar', 'focus', 'backup', 'general', 'updates'];
+/** A calendar's reminder: minutes before its meetings (settings.rs REMIND_CHOICES). */
+const REMIND = [[0, 'без напоминания'], [1, 'за 1 мин'], [5, 'за 5 мин'], [10, 'за 10 мин'], [15, 'за 15 мин'], [30, 'за 30 мин']];
 
 /** Calendars one can connect, and how to get what each needs. */
 const PROVIDERS = [
@@ -155,6 +158,12 @@ function logo(p) {
 }
 
 function renderAccounts() {
+  // A reminder list being picked from would close under a rebuild: later, when it's left.
+  if (document.activeElement?.matches?.('#accounts select')) {
+    accountsLater = true;
+    return;
+  }
+  accountsLater = false;
   const accounts = settings.calendarAccounts;
   const html = accounts.map((a, i) => {
     const p = providerOf(a.provider);
@@ -167,11 +176,17 @@ function renderAccounts() {
           ? `<span class="ok">обновлено ${ago(st.updated)}</span>`
           : '<span>подключаю…</span>';
     const confirm = confirming === a.id;
-    const cals = a.calendars.length > 1
-      ? `<div class="hr"></div><div class="cals">${a.calendars.map((c, j) =>
-        `<button class="ck${c.enabled ? ' on' : ''}" data-acc="${i}" data-cal="${j}" style="--c:${esc(c.color || 'var(--ac)')}">` +
-        `<span class="box"><svg class="i"><use href="#i-check"/></svg></span><span class="sw-dot"></span><span>${esc(c.name)}</span></button>`).join('')}</div>`
-      : '';
+    // Each calendar: on/off (when there's a choice) and when its meetings are reminded of.
+    const cals = `<div class="hr"></div><div class="cals">${a.calendars.map((c, j) => {
+      const name = `<span class="sw-dot"></span><span>${esc(c.name)}</span>`;
+      const ck = a.calendars.length > 1
+        ? `<button class="ck${c.enabled ? ' on' : ''}" data-acc="${i}" data-cal="${j}" style="--c:${esc(c.color || 'var(--ac)')}">` +
+          `<span class="box"><svg class="i"><use href="#i-check"/></svg></span>${name}</button>`
+        : `<span class="ck on one" style="--c:${esc(c.color || 'var(--ac)')}">${name}</span>`;
+      const remind = REMIND.map(([m, label]) => `<option value="${m}"${(c.remind ?? 5) === m ? ' selected' : ''}>${label}</option>`).join('');
+      return `<div class="cal">${ck}<label class="rem${c.enabled ? '' : ' off'}" title="Напоминание о встречах">` +
+        `<svg class="i"><use href="#i-bell"/></svg><select data-acc="${i}" data-cal="${j}"${c.enabled ? '' : ' disabled'}>${remind}</select></label></div>`;
+    }).join('')}</div>`;
     const title = a.label && a.label !== p.name ? `${p.name} · ${esc(a.label)}` : p.name;
     return `<div class="card acc"><div class="acc-h">${logo(p)}<div class="acc-t"><b title="${esc(a.label)}">${title}</b>${status}</div>` +
       '<div class="acc-a">' +
@@ -295,8 +310,20 @@ $('form').addEventListener('click', (e) => {
     input.type = input.type === 'password' ? 'text' : 'password';
   }
 });
+/** A rebuild of the accounts held back while a reminder list was open. */
+let accountsLater = false;
+$('accounts').addEventListener('change', (e) => {
+  const sel = e.target.closest('select[data-cal]');
+  if (!sel) return;
+  settings.calendarAccounts[+sel.dataset.acc].calendars[+sel.dataset.cal].remind = +sel.value;
+  save(0);
+});
+$('accounts').addEventListener('focusout', (e) => {
+  if (!e.target.matches('select')) return;
+  setTimeout(() => accountsLater && settings && renderAccounts());
+});
 $('accounts').addEventListener('click', async (e) => {
-  const ck = e.target.closest('.ck');
+  const ck = e.target.closest('button.ck');
   if (ck) {
     const c = settings.calendarAccounts[+ck.dataset.acc].calendars[+ck.dataset.cal];
     c.enabled = !c.enabled;
@@ -378,6 +405,13 @@ $('pick').addEventListener('click', async () => {
   render();
   save(0);
 });
+$('theme').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-theme]');
+  if (!b || settings.theme === b.dataset.theme) return;
+  settings.theme = b.dataset.theme;
+  render();
+  save(0);
+});
 $('autostart').addEventListener('click', () => {
   settings.autostart = !settings.autostart;
   render();
@@ -440,6 +474,11 @@ function render() {
   $('backup-dir').textContent = settings.backupDir;
   $('backup-dir').title = settings.backupDir;
   toggle('autostart', settings.autostart);
+  for (const b of $('theme').querySelectorAll('button')) {
+    const on = b.dataset.theme === (settings.theme ?? 'system');
+    b.classList.toggle('sel', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
   toggle('auto-update', settings.autoUpdate);
   renderUpdate();
 }

@@ -1,7 +1,7 @@
 /* «Фокус»: timer strip under the task widgets — dial, modes and controls, sounds. */
 .w.fx{flex-direction:row;padding:20px;--ph:var(--ac);--ph-soft:var(--ac-soft);--ph-line:var(--ac-line)}
 .fx.is-break{--ph:var(--br);--ph-soft:var(--br-soft);--ph-line:var(--br-line)}
-.fx.is-idle{--ph:var(--t3);--ph-soft:rgba(255,255,255,.05);--ph-line:rgba(255,255,255,.2)}
+.fx.is-idle{--ph:var(--t3);--ph-soft:rgba(var(--fg),.05);--ph-line:rgba(var(--fg),.2)}
 
 /* dial: ring + time */
 .fx-dial{position:relative;flex:none;width:160px;height:160px;align-self:center;display:grid;place-items:center}
@@ -9,8 +9,8 @@
   background:radial-gradient(closest-side,var(--ph-soft),transparent 100%);opacity:.9;transition:opacity var(--d3)}
 .is-idle .fx-dial::before{opacity:0}
 .fx-ring{position:absolute;inset:0;width:160px;height:160px;overflow:visible}
-.fx-ring .trk{fill:none;stroke:rgba(255,255,255,.07);stroke-width:3}
-.fx-ring .tks{fill:none;stroke:rgba(255,255,255,.09);stroke-width:3;stroke-dasharray:.9 5.906} /* 60 ticks on r=65 */
+.fx-ring .trk{fill:none;stroke:rgba(var(--fg),.07);stroke-width:3}
+.fx-ring .tks{fill:none;stroke:rgba(var(--fg),.09);stroke-width:3;stroke-dasharray:.9 5.906} /* 60 ticks on r=65 */
 .fx-ring .arc{fill:none;stroke:var(--ph);stroke-width:3;stroke-linecap:round;transform:rotate(-90deg);transform-origin:80px 80px;
   filter:drop-shadow(0 0 4px var(--ph-line));transition:stroke var(--d3)}
 .fx-ring .head{fill:var(--t1);stroke:var(--ph);stroke-width:2}
@@ -36,13 +36,13 @@
 .fx-hd h2{font:600 15px/20px var(--font-d);letter-spacing:-.01em;white-space:nowrap}
 .fx-hd span{font-size:12px;color:var(--t3);white-space:nowrap;font-variant-numeric:tabular-nums}
 .fx-hd span em{font-style:normal;color:var(--t2)}
-.fx-modes{display:flex;gap:2px;padding:2px;height:44px;border-radius:7px;background:rgba(0,0,0,.16);box-shadow:inset 0 0 0 1px var(--line)}
+.fx-modes{display:flex;gap:2px;padding:2px;height:44px;border-radius:7px;background:var(--well-2);box-shadow:inset 0 0 0 1px var(--line)}
 .mode{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;border-radius:var(--r-chip);
   color:var(--t3);transition:background var(--d1),color var(--d1),opacity var(--d2)}
 .mode b{font:500 12px/16px var(--font)}
 .mode span{font-size:11px;line-height:14px;color:var(--t4);font-variant-numeric:tabular-nums;letter-spacing:.01em}
 .mode:hover{background:var(--raise);color:var(--t2)}
-.mode.sel{background:var(--raise-2);color:var(--t1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 1px 2px rgba(0,0,0,.25)}
+.mode.sel{background:var(--raise-2);color:var(--t1);box-shadow:inset 0 0 0 1px rgba(var(--fg),.06),0 1px 2px rgba(0,0,0,.25)}
 .mode.sel b{font-weight:600}
 .mode.sel span{color:var(--t3)}
 /* A session is under way: the mode can't change until it's reset. */
@@ -67,12 +67,15 @@
 .fx-snd{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:space-between}
 .snd-hd{display:flex;align-items:center;gap:10px;height:20px;font-size:12px;line-height:16px}
 .snd-hd b{font-weight:600;color:var(--t1)}
-.snd-now{display:flex;align-items:center;gap:8px;min-width:0;color:var(--t3);white-space:nowrap}
+/* what's playing takes the room left between the tabs and the volume, and shortens */
+.snd-now{flex:1;display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;color:var(--t3);white-space:nowrap}
+.snd-now .wave{flex:none}
+.snd-now>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .snd-now em{font-style:normal;color:var(--t2)}
-.vol{margin-left:auto;display:flex;align-items:center;gap:6px}
+.vol{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px}
 .vol .ib.off{color:var(--t1);background:var(--raise-2)}
 .slider{position:relative;width:104px;height:16px;display:flex;align-items:center;cursor:pointer;touch-action:none}
-.slider::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:rgba(255,255,255,.09)}
+.slider::before{content:"";position:absolute;left:0;right:0;height:3px;border-radius:2px;background:rgba(var(--fg),.09)}
 .slider i{position:absolute;left:0;height:3px;border-radius:2px;background:var(--t2)}
 .slider i::after{content:"";position:absolute;right:-5px;top:-3.5px;width:10px;height:10px;border-radius:50%;background:var(--t1);
   box-shadow:0 1px 3px rgba(0,0,0,.5);transition:transform var(--d1) var(--e-spring)}
@@ -83,34 +86,49 @@
 .snd-body{display:flex;gap:8px}
 /* Sound groups: a vertical switch; a dot marks the group of the sound that's playing. */
 .groups{flex:none;width:86px;display:flex;flex-direction:column;gap:2px;padding:2px;border-radius:7px;
-  background:rgba(0,0,0,.16);box-shadow:inset 0 0 0 1px var(--line)}
+  background:var(--well-2);box-shadow:inset 0 0 0 1px var(--line)}
 .grp{position:relative;flex:1;display:flex;align-items:center;padding:0 10px;border-radius:var(--r-chip);
   font-size:12px;color:var(--t3);text-align:left;transition:background var(--d1),color var(--d1)}
 .grp:hover{background:var(--raise);color:var(--t2)}
-.grp.sel{background:var(--raise-2);color:var(--t1);font-weight:600;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 1px 2px rgba(0,0,0,.25)}
+.grp.sel{background:var(--raise-2);color:var(--t1);font-weight:600;box-shadow:inset 0 0 0 1px rgba(var(--fg),.06),0 1px 2px rgba(0,0,0,.25)}
 .grp.live::after{content:"";position:absolute;right:9px;top:50%;width:5px;height:5px;margin-top:-2.5px;border-radius:50%;
   background:var(--ac);box-shadow:0 0 0 3px var(--ac-soft)}
 .tiles{flex:1;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:60px 60px;gap:6px}
 .tile span{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 /* A sound in the mix: its own level as a thin bar along the tile's bottom. */
 .tile::after{content:"";position:absolute;left:11px;right:10px;bottom:5px;height:2px;border-radius:1px;opacity:0;
-  background:linear-gradient(90deg,var(--ac) calc(var(--lvl,0) * 100%),rgba(255,255,255,.08) 0);transition:opacity var(--d2)}
+  background:linear-gradient(90deg,var(--ac) calc(var(--lvl,0) * 100%),rgba(var(--fg),.08) 0);transition:opacity var(--d2)}
 .tile.on::after{opacity:.9}
 .tile.sel::after{opacity:.45;filter:grayscale(1)}
 
 /* stats: the last seven days, opened from «сегодня …» */
-.fx-hd .today{cursor:pointer;border-radius:4px;transition:color var(--d1)}
-.fx-hd .today:hover{color:var(--t2)}
-.fx-hd .today:hover em{color:var(--t1)}
+/* «сегодня 1 ч 20 мин» gives way to the button when the row is tight */
+.fx-hd .today{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* «Статистика»: its own button at the end of the header */
+.stats-btn{align-self:center;margin-left:auto;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px 0 7px;border-radius:6px;
+  font-size:12px;font-weight:500;color:var(--t2);background:var(--raise);box-shadow:inset 0 0 0 1px var(--line);
+  transition:background var(--d1),color var(--d1),box-shadow var(--d1)}
+.stats-btn .i{width:13px;height:13px;color:var(--ac)}
+.stats-btn:hover{color:var(--t1);background:var(--raise-2)}
+.stats-btn.on{color:var(--ac-txt);background:var(--ac-soft);box-shadow:inset 0 0 0 1px var(--ac-line)}
+/* the right half's title: «Звуки», or «‹ Статистика за неделю» (back to the sounds) */
+.snd-title{flex:none}
+.stats-back{display:none;flex:none;align-items:center;gap:4px;height:22px;padding:0 8px 0 4px;margin-left:-6px;border-radius:5px;
+  font-size:12px;font-weight:600;color:var(--t1);transition:background var(--d1)}
+.stats-back .i{width:12px;height:12px;color:var(--t3)}
+.stats-back:hover{background:var(--raise-2)}
+.stats-back:hover .i{color:var(--t1)}
+.fx.show-stats .snd-title{display:none}
+.fx.show-stats .stats-back{display:inline-flex}
 .stats{display:none;flex:1;gap:22px;align-items:stretch;height:126px}
 .fx.show-stats .snd-body{display:none}
 .fx.show-stats .stats{display:flex}
 .bars{flex:1;display:flex;align-items:flex-end;gap:10px;padding:0 4px}
 .bar{flex:1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;min-width:0}
 .bar b{font-size:10.5px;line-height:13px;font-weight:500;color:var(--t3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.bar i{width:100%;max-width:34px;min-height:3px;border-radius:4px 4px 2px 2px;background:rgba(255,255,255,.1)}
-.bar.has i{background:linear-gradient(180deg,rgba(142,159,255,.75),rgba(142,159,255,.35))}
-.bar.today i{background:linear-gradient(180deg,var(--ac),rgba(142,159,255,.55));box-shadow:0 0 10px -2px var(--ac-line)}
+.bar i{width:100%;max-width:34px;min-height:3px;border-radius:4px 4px 2px 2px;background:rgba(var(--fg),.1)}
+.bar.has i{background:linear-gradient(180deg,rgba(var(--ac-rgb),.75),rgba(var(--ac-rgb),.35))}
+.bar.today i{background:linear-gradient(180deg,var(--ac),rgba(var(--ac-rgb),.55));box-shadow:0 0 10px -2px var(--ac-line)}
 .bar span{font-size:11px;line-height:14px;color:var(--t4)}
 .bar.today span{color:var(--t1);font-weight:600}
 .sums{flex:none;width:150px;display:flex;flex-direction:column;justify-content:center;gap:12px;padding-left:20px;
@@ -120,17 +138,17 @@
 .sums b{font:600 15px/20px var(--font-d);color:var(--t1);font-variant-numeric:tabular-nums}
 .tile{position:relative;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;padding:9px 10px 8px 11px;
   border-radius:var(--r-row);text-align:left;color:var(--t2);background:var(--raise);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.03),inset 0 1px 0 rgba(255,255,255,.04);
+  box-shadow:inset 0 0 0 1px rgba(var(--fg),.03),inset 0 1px 0 rgba(var(--fg),.04);
   transition:background var(--d1) var(--e-out),color var(--d1),transform var(--d1) var(--e-out)}
 .tile:hover{background:var(--raise-2);color:var(--t1)}
 .tile:active{transform:scale(.97)}
 .tile .ti{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;color:var(--t3)}
 .tile:hover .ti{color:var(--t2)}
 .tile span{font-size:12px;line-height:16px;white-space:nowrap}
-.tile.on{color:var(--t1);background:linear-gradient(160deg,rgba(142,159,255,.20),rgba(142,159,255,.08));
-  box-shadow:inset 0 0 0 1px rgba(142,159,255,.38),inset 0 1px 0 rgba(255,255,255,.06)}
+.tile.on{color:var(--t1);background:linear-gradient(160deg,rgba(var(--ac-rgb),.20),rgba(var(--ac-rgb),.08));
+  box-shadow:inset 0 0 0 1px rgba(var(--ac-rgb),.38),inset 0 1px 0 rgba(var(--fg),.06)}
 .tile.on .ti{color:var(--ac)}
-.tile.sel{color:var(--t1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}
+.tile.sel{color:var(--t1);box-shadow:inset 0 0 0 1px rgba(var(--fg),.16)}
 .tile.sel .ti{color:var(--t2)}
 .tile .eq{position:absolute;top:11px;right:10px;display:none;align-items:flex-end;gap:2px;height:12px}
 .tile.on .eq{display:flex}

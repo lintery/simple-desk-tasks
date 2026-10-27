@@ -1,25 +1,58 @@
-/* «Графит»: graphite ink on smoked glass, one cool accent, coral only for what's late. */
+/* «Графит»: graphite ink on smoked glass, one cool accent, coral only for what's late.
+   The light theme («Бумага») swaps the same tokens: <html data-theme="light">, set by lib/theme.js. */
 :root{
   --font:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
   --font-d:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+  /* rgb of overlays (hover, lines, wells' edges), the accent, late, breaks, important */
+  --fg:255,255,255; --ac-rgb:142,159,255; --od-rgb:255,107,93; --br-rgb:127,208,189; --imp-rgb:242,178,76;
   --tint:rgba(21,21,25,.74);
-  --raise:rgba(255,255,255,.045); --raise-2:rgba(255,255,255,.075);
-  --line:rgba(255,255,255,.065); --edge:rgba(255,255,255,.09);
-  --t1:#ececef; --t2:#bdbdc5; --t3:#9a9aa4; --t4:#70707a;
-  --ac:#8e9fff; --ac-soft:rgba(142,159,255,.14); --ac-line:rgba(142,159,255,.5);
-  --od:#ff6b5d; --od-soft:rgba(255,107,93,.085); --od-line:rgba(255,107,93,.55);
-  /* Focus breaks: sea-glass teal at the accent's lightness. Ink: glyphs on light buttons. */
-  --br:#7fd0bd; --br-soft:rgba(127,208,189,.13); --br-line:rgba(127,208,189,.5); --ink:#101014;
+  /* opaque surfaces: the window under the glass, hover pills, popovers, the snackbar */
+  --bg:#17171a; --surface:#202025; --surface-2:#232328; --surface-3:#26262b; --veil:rgba(16,16,18,.7);
+  --well:rgba(0,0,0,.24); --well-2:rgba(0,0,0,.16);
+  --raise:rgba(var(--fg),.045); --raise-2:rgba(var(--fg),.075);
+  --line:rgba(var(--fg),.065); --edge:rgba(var(--fg),.09);
+  /* t4 (hints, placeholders) keeps ~4:1 on the darkest glass */
+  --t1:#ececef; --t2:#bdbdc5; --t3:#9a9aa4; --t4:#7c7c87;
+  --ac:#8e9fff; --ac-txt:#b3bfff; --ac-soft:rgba(var(--ac-rgb),.14); --ac-line:rgba(var(--ac-rgb),.5);
+  --od:#ff6b5d; --od-soft:rgba(var(--od-rgb),.085); --od-line:rgba(var(--od-rgb),.55);
+  --imp:#f2b24c; --imp-soft:rgba(var(--imp-rgb),.16);
+  /* Focus breaks: sea-glass teal at the accent's lightness. Ink: glyphs on accent buttons. */
+  --br:#7fd0bd; --br-soft:rgba(var(--br-rgb),.13); --br-line:rgba(var(--br-rgb),.5); --ink:#101014;
+  --scheme:dark;
+  /* how dark the big shadows (popovers, snackbar) are */
+  --sh:1;
   --r-win:8px; --r-row:6px; --r-chip:5px;
   --e-out:cubic-bezier(.2,.8,.2,1); --e-spring:cubic-bezier(.34,1.56,.64,1);
   --d1:120ms; --d2:180ms; --d3:260ms;
 }
+:root[data-theme="light"]{
+  --fg:0,0,0; --ac-rgb:84,101,232; --od-rgb:214,64,50; --br-rgb:26,140,115; --imp-rgb:196,118,10;
+  --tint:rgba(248,248,251,.88);
+  --bg:#f4f4f7; --surface:#ffffff; --surface-2:#ffffff; --surface-3:#ffffff; --veil:rgba(255,255,255,.85);
+  --well:rgba(0,0,0,.05); --well-2:rgba(0,0,0,.04);
+  --raise:rgba(0,0,0,.045); --raise-2:rgba(0,0,0,.075);
+  --line:rgba(0,0,0,.09); --edge:rgba(0,0,0,.12);
+  --t1:#1b1b21; --t2:#3d3d47; --t3:#5d5d68; --t4:#777782;
+  --ac:#5465e8; --ac-txt:#3a49c8; --ac-soft:rgba(var(--ac-rgb),.12); --ac-line:rgba(var(--ac-rgb),.45);
+  --od:#d64032; --od-soft:rgba(var(--od-rgb),.08); --od-line:rgba(var(--od-rgb),.5);
+  --imp:#c4760a; --imp-soft:rgba(var(--imp-rgb),.14);
+  --br:#1a8c73; --br-soft:rgba(var(--br-rgb),.12); --br-line:rgba(var(--br-rgb),.45); --ink:#ffffff;
+  --scheme:light;
+  --sh:.35;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:transparent;overflow:hidden;color-scheme:dark}
+html,body{height:100%;background:transparent;overflow:hidden;color-scheme:var(--scheme)}
 body{font:400 13px/18px var(--font);color:var(--t1);-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 input{font:inherit;color:inherit;background:none;border:0;outline:none;min-width:0;user-select:text}
 input::placeholder{color:var(--t4)}
+/* Keyboard focus is always visible (text fields show it on their own box). */
+:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+input:focus-visible,select:focus-visible{outline:none}
+/* «Reduce motion» in Windows: no springs, slides or breathing; state changes stay instant and clear. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important;transition-delay:0s!important}
+}
 .i{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
 /* Filled parts of sprite icons (play, pause…); matched in the <symbol>, so no `.i` ancestor. */
 .f{fill:currentColor;stroke:none}
@@ -31,12 +64,14 @@ input::placeholder{color:var(--t4)}
 
 /* ---------- shell ---------- */
 .w{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden;border-radius:var(--r-win);isolation:isolate;
-  background:#17171a;border:1px solid var(--edge);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+  background:var(--bg);border:1px solid var(--edge);box-shadow:inset 0 1px 0 rgba(var(--fg),.05)}
 .wall{position:absolute;left:-80px;top:-80px;width:calc(100% + 160px);height:calc(100% + 160px);z-index:-2;opacity:0;transition:opacity .4s var(--e-out)}
 .wall.ready{opacity:1}
 .w::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--tint);pointer-events:none}
 
-.hd{flex:none;position:relative;display:flex;align-items:center;gap:8px;height:46px;padding:0 10px 0 20px}
+/* Both edges line up with the list's content (6px list + 14/12px row padding),
+   and with its scrollbar when it has one (--sb, set by lib/edges.js). */
+.hd{flex:none;position:relative;display:flex;align-items:center;gap:8px;height:46px;padding:0 calc(18px + var(--sb, 0px)) 0 20px}
 /* While moving is allowed: a move cursor and an accent outline, so it's obvious. */
 body.movable .hd{cursor:move}
 body.movable .w{border-color:var(--ac-line)}
@@ -64,37 +99,80 @@ body.movable .w{border-color:var(--ac-line)}
    it never catches clicks meant for the row above. */
 .cb::before{content:"";position:absolute;inset:-7.5px -7.5px -7.5px -13.5px}
 .row:hover .cb{border-color:var(--t2)}
-.cb svg{width:10px;height:10px;fill:none;stroke:#101014;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9;stroke-dashoffset:9}
-.done .cb{background:var(--ac);border-color:var(--ac)!important}
-.done .cb svg{stroke-dashoffset:0}
-.done:not(.static) .cb{animation:pop 320ms var(--e-spring)}
-.done:not(.static) .cb svg{transition:stroke-dashoffset 200ms 80ms var(--e-out)}
-.done:not(.static) .cb::after{content:"";position:absolute;inset:-1.5px;border-radius:50%;animation:ring 420ms var(--e-out) both}
+.cb svg{width:10px;height:10px;fill:none;stroke:var(--ink);stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9;stroke-dashoffset:9}
+/* Direct children: a done task's checklist keeps its own ticks. */
+.done>.cb{background:var(--ac);border-color:var(--ac)!important}
+.done>.cb svg{stroke-dashoffset:0}
+.done:not(.static)>.cb{animation:pop 320ms var(--e-spring)}
+.done:not(.static)>.cb svg{transition:stroke-dashoffset 200ms 80ms var(--e-out)}
+.done:not(.static)>.cb::after{content:"";position:absolute;inset:-1.5px;border-radius:50%;animation:ring 420ms var(--e-out) both}
 @keyframes pop{0%{transform:scale(.72)}60%{transform:scale(1.1)}100%{transform:scale(1)}}
-@keyframes ring{from{box-shadow:0 0 0 0 var(--ac-line)}to{box-shadow:0 0 0 7px rgba(142,159,255,0)}}
+@keyframes ring{from{box-shadow:0 0 0 0 var(--ac-line)}to{box-shadow:0 0 0 7px rgba(var(--ac-rgb),0)}}
 .tx{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;cursor:text}
 .tx span{-webkit-box-decoration-break:clone;box-decoration-break:clone;
   background:linear-gradient(currentColor,currentColor) no-repeat 0 58%/0 1px;transition:background-size var(--d3) 120ms var(--e-out),color var(--d3) var(--e-out)}
-.done .tx span{background-size:100% 1px;color:var(--t3)}
-.done.static .tx span{transition:none}
+.done>.tx span,.done>.body>.tx span{background-size:100% 1px;color:var(--t3)}
+.done.static>.tx span{transition:none}
 .meta{flex:none;display:flex;align-items:center;gap:5px;height:18px;font-size:12px;color:var(--t2);font-variant-numeric:tabular-nums}
 .meta .i{width:11px;height:11px;color:var(--t3)}
-.meta.next{color:#b3bfff;font-weight:600}
+.meta.next{color:var(--ac-txt);font-weight:600}
 .meta.next::before{content:"";width:4px;height:4px;border-radius:50%;background:var(--ac)}
 .meta.stale{color:var(--t3)}
 .done .meta,.done .meta .i{color:var(--t4)}
+
+/* important: a flag by the time, the circle in the flag's colour */
+.flag{display:inline-grid;place-items:center;color:var(--imp)}
+.meta .flag .i,.odl .flag .i{width:12px;height:12px;color:var(--imp);stroke-width:1.6}
+.row.imp>.cb{border-color:var(--imp)}
+.row.imp:hover>.cb{border-color:var(--imp)}
+/* subtasks: «2/5» opens the checklist */
+.sp{position:relative;display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 5px;margin:0 -1px;border-radius:4px;font-size:11.5px;color:var(--t3);
+  font-variant-numeric:tabular-nums;transition:background var(--d1),color var(--d1)}
+.sp::before{content:"";position:absolute;inset:-4px -2px} /* a 26px-high target in an 18px chip */
+.sp .i{width:11px;height:11px}
+.sp:hover,.row.open .sp{background:var(--raise-2);color:var(--t1)}
+.sp.all{color:var(--ac-txt)}
+.row.open{flex-wrap:wrap;background:var(--raise)}
+.subs{flex-basis:100%;display:flex;flex-direction:column;gap:1px;margin:4px -6px 0 18px}
+.sub{position:relative;display:flex;align-items:center;gap:8px;min-height:26px;padding:3px 4px 3px 8px;border-radius:5px}
+.sub:hover{background:var(--raise)}
+.sub .cb{width:14px;height:14px;margin:0;border-radius:4px}
+.sub .cb::before{inset:-6px}
+.sub .cb svg{width:9px;height:9px}
+.sub.done .cb{background:var(--ac);border-color:var(--ac)}
+.sub.done .cb svg{stroke-dashoffset:0}
+.st{flex:1;min-width:0;font-size:12.5px;line-height:17px;overflow-wrap:anywhere}
+.sub.done .st{color:var(--t3);text-decoration:line-through;text-decoration-color:var(--t4)}
+.sub .x{width:24px;height:24px;opacity:0}
+.sub .x .i{width:11px;height:11px}
+.sub:hover .x,.sub .x:focus-visible{opacity:1}
+.sub-add{display:flex;align-items:center;gap:8px;min-height:28px;padding:0 4px 0 8px;border-radius:5px;color:var(--t4);cursor:text}
+.sub-add .plus{width:14px;height:14px;border-radius:4px}
+.sub-add .plus .i{width:8px;height:8px}
+.sub-add input{flex:1;height:28px;font-size:12.5px;caret-color:var(--ac)}
+.sub-add:focus-within{background:var(--raise)}
+.sub-add:focus-within .plus{border-color:var(--ac);color:var(--ac)}
+
+/* what the parser understood, tinted behind the typed text (lib/hilite.js) */
+.hl{position:relative;flex:1;min-width:0;display:flex;align-self:stretch}
+.hl>input{position:relative;z-index:1;flex:1;width:100%;background:transparent}
+.hl-layer{position:absolute;inset:0;display:flex;align-items:center;overflow:hidden;pointer-events:none;white-space:pre;color:transparent}
+.hl-layer>span{display:block;flex:none}
+.hl-layer mark{color:transparent;border-radius:3px;background:var(--ac-soft);box-shadow:0 0 0 2px var(--ac-soft)}
+.hl-layer mark.important{background:var(--imp-soft);box-shadow:0 0 0 2px var(--imp-soft)}
+.chip.important{color:var(--imp);background:var(--imp-soft)}
 /* Hover actions float over the row's right edge: nothing reflows, so long
    titles don't re-wrap and rows below don't jump. The text fades out under them. */
 .acts{position:absolute;top:4px;right:8px;z-index:1;display:flex;gap:2px;padding:1px;border-radius:7px;
-  background:#202025;box-shadow:0 0 0 1px var(--line),-10px 0 14px -4px rgba(16,16,18,.7);
+  background:var(--surface);box-shadow:0 0 0 1px var(--line),-10px 0 14px -4px var(--veil);
   opacity:0;visibility:hidden;transform:translateX(4px);
   transition:opacity 140ms var(--e-out),transform 140ms var(--e-out),visibility 0s linear 140ms}
 .row:hover .acts{opacity:1;visibility:visible;transform:none;transition-delay:0s}
 /* The opaque actions pill covers the time; only the first line of text fades under it. */
 .row:hover .tx{
-  -webkit-mask:linear-gradient(90deg,#000 calc(100% - 92px),transparent calc(100% - 64px)) 0 0/100% 18px no-repeat,
+  -webkit-mask:linear-gradient(90deg,#000 calc(100% - 118px),transparent calc(100% - 90px)) 0 0/100% 18px no-repeat,
     linear-gradient(#000,#000) 0 18px/100% 100% no-repeat;
-  mask:linear-gradient(90deg,#000 calc(100% - 92px),transparent calc(100% - 64px)) 0 0/100% 18px no-repeat,
+  mask:linear-gradient(90deg,#000 calc(100% - 118px),transparent calc(100% - 90px)) 0 0/100% 18px no-repeat,
     linear-gradient(#000,#000) 0 18px/100% 100% no-repeat}
 .row.editing .acts,.row.done .acts{display:none}
 .row.editing .tx,.row.done .tx{-webkit-mask:none;mask:none}
@@ -121,7 +199,7 @@ body.movable .w{border-color:var(--ac-line)}
 .chip .i{width:12px;height:12px}
 @keyframes chip{from{opacity:0;transform:scale(.92)}}
 kbd{font:600 10px/16px var(--font);min-width:16px;padding:0 4px;text-align:center;border-radius:4px;color:var(--t3);
-  background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line),inset 0 -1px 0 rgba(255,255,255,.06)}
+  background:rgba(var(--fg),.04);box-shadow:inset 0 0 0 1px var(--line),inset 0 -1px 0 rgba(var(--fg),.06)}
 
 /* day groups */
 .gh{flex:none;display:flex;align-items:baseline;gap:6px;padding:14px 12px 4px 14px;font-size:12px;line-height:16px}
@@ -133,24 +211,24 @@ kbd{font:600 10px/16px var(--font);min-width:16px;padding:0 4px;text-align:cente
 
 /* overdue */
 .ods{flex:none;padding:0 0 4px;border-radius:8px;
-  background:linear-gradient(180deg,rgba(255,107,93,.10),rgba(255,107,93,.04));box-shadow:inset 0 0 0 1px rgba(255,107,93,.16)}
+  background:linear-gradient(180deg,rgba(var(--od-rgb),.10),rgba(var(--od-rgb),.04));box-shadow:inset 0 0 0 1px rgba(var(--od-rgb),.16)}
 .ods-h{display:flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 14px;font:600 11px/14px var(--font);letter-spacing:.02em;color:var(--od)}
 .ods-h .n{font-variant-numeric:tabular-nums;font-weight:700}
 .lnk{margin-left:auto;font-size:11.5px;font-weight:500;letter-spacing:0;color:var(--t3);padding:2px 6px;border-radius:4px}
 .lnk:hover{color:var(--t1);background:var(--raise-2)}
 .row.od:hover{background:var(--od-soft)}
-.od .cb{border-color:rgba(255,107,93,.8)}
+.od .cb{border-color:rgba(var(--od-rgb),.8)}
 .row.od:hover .cb{border-color:var(--od)}
 .od .body{flex:1;min-width:0}
 .odl{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:12px;color:var(--od);font-variant-numeric:tabular-nums}
 .rs{margin-left:auto;display:flex;gap:4px;margin-right:-4px}
 .pill{height:22px;padding:0 9px;border-radius:var(--r-chip);font-size:11.5px;font-weight:500;color:var(--t1);
-  background:rgba(255,255,255,.07);transition:background var(--d1),color var(--d1)}
+  background:rgba(var(--fg),.07);transition:background var(--d1),color var(--d1)}
 .pill:hover{background:var(--ac-soft);color:var(--ac)}
 
 .row.done .rs{visibility:hidden}
 .banner{flex:none;margin:4px 6px 8px;padding:10px 12px;border-radius:8px;font-size:12px;color:var(--od);
-  background:var(--od-soft);box-shadow:inset 0 0 0 1px rgba(255,107,93,.2)}
+  background:var(--od-soft);box-shadow:inset 0 0 0 1px rgba(var(--od-rgb),.2)}
 .snk.err b{color:var(--od)}
 .snk.err::after{background:var(--od)}
 
@@ -175,8 +253,8 @@ body.drop-on .w{border-color:var(--ac-line);box-shadow:inset 0 0 0 1px var(--ac-
 
 /* snackbar */
 .snk{flex:none;position:relative;display:flex;align-items:center;gap:10px;height:36px;margin:0 8px 8px;padding:0 6px 0 12px;
-  border-radius:8px;background:#26262b;overflow:hidden;font-size:12px;color:var(--t2);
-  box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 24px rgba(0,0,0,.45);animation:rise 180ms var(--e-out)}
+  border-radius:8px;background:var(--surface-3);overflow:hidden;font-size:12px;color:var(--t2);
+  box-shadow:0 0 0 1px rgba(var(--fg),.08),0 8px 24px rgba(0,0,0,calc(.45 * var(--sh)));animation:rise 180ms var(--e-out)}
 .snk[hidden]{display:none}
 .snk .i{color:var(--ac)}
 .snk b{flex:1;min-width:0;font-weight:400;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -189,12 +267,20 @@ body.drop-on .w{border-color:var(--ac-line);box-shadow:inset 0 0 0 1px var(--ac-
 @keyframes rise{from{opacity:0;transform:translateY(8px)}}
 
 /* add input */
-.add{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:44px;padding:0 14px 0 20px;
+.add{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:44px;padding:0 calc(18px + var(--sb, 0px)) 0 20px;
   border-top:1px solid var(--line);color:var(--t4);cursor:text}
 .plus{width:16px;height:16px;border-radius:50%;border:1.5px dashed var(--t4);display:grid;place-items:center;flex:none;transition:border-color var(--d1),color var(--d1)}
 .plus .i{width:9px;height:9px;stroke-width:2}
 .add input{flex:1;height:44px;color:var(--t1);caret-color:var(--ac)}
-.add.on{background:rgba(255,255,255,.025)}
+/* «add» arrow: quiet while the field is empty, the accent once there's something to add */
+.add-go{flex:none;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--t4);background:var(--raise);
+  box-shadow:inset 0 0 0 1px var(--line);transition:background var(--d2) var(--e-out),color var(--d2),box-shadow var(--d2),transform var(--d1)}
+.add-go .i{width:13px;height:13px;stroke-width:1.7}
+.add-go:hover{color:var(--t1);background:var(--raise-2)}
+.add-go.ready{color:var(--ink);background:var(--ac);box-shadow:0 4px 12px -4px var(--ac-line)}
+.add-go.ready:hover{color:var(--ink);background:var(--ac);filter:brightness(1.08)}
+.add-go:active{transform:scale(.92)}
+.add.on{background:rgba(var(--fg),.025)}
 .add.on .plus{border-color:var(--ac);color:var(--ac)}
 .add.parsed-on{padding-bottom:10px}
 .parsed{flex-basis:100%;display:none;flex-wrap:wrap;align-items:center;gap:6px;padding-left:26px;margin-top:-6px}
@@ -203,12 +289,68 @@ body.drop-on .w{border-color:var(--ac-line);box-shadow:inset 0 0 0 1px var(--ac-
 .dest .i{width:12px;height:12px}
 
 /* date popover */
-.pop{position:fixed;z-index:20;min-width:200px;padding:4px;border-radius:8px;background:#232328;
-  box-shadow:0 0 0 1px rgba(255,255,255,.09),0 12px 32px rgba(0,0,0,.55);animation:rise 140ms var(--e-out)}
-.pop button{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;height:28px;padding:0 10px;border-radius:5px;font-size:12.5px;text-align:left}
+.pop{position:fixed;z-index:20;min-width:200px;padding:4px;border-radius:8px;background:var(--surface-2);
+  box-shadow:0 0 0 1px rgba(var(--fg),.09),0 12px 32px rgba(0,0,0,calc(.55 * var(--sh)));animation:rise 140ms var(--e-out)}
+/* label on the left (after its icon, if any), hint pushed to the right */
+.pop button{display:flex;align-items:center;gap:10px;width:100%;height:28px;padding:0 10px;border-radius:5px;font-size:12.5px;text-align:left}
+.pop button>span{margin-left:auto;padding-left:6px}
+.pop button>.i{color:var(--t3)}
+.pop button:hover>.i{color:var(--t1)}
 .pop button:hover,.pop button.sel{background:var(--raise-2)}
 .pop button span{color:var(--t3);font-size:11.5px}
 .pop button:hover span,.pop button.sel span{color:var(--t2)}
+/* «Когда»: the date picker (lib/datepicker.js). Labelled parts: Дата (with
+   the month folded under «Дата…»), Время, Повтор (+ its days), Или словами. */
+.pop.dp{width:272px;padding:6px 12px 12px;max-height:calc(100vh - 12px);overflow-y:auto;scrollbar-width:thin}
+.pop.dp:focus{outline:none}
+.pop.dp button{width:auto;height:auto;padding:0;justify-content:center;gap:0}
+.pop.dp button:hover{background:none}
+.dp-sec{padding:10px 0 2px}
+.dp-sec+.dp-sec,.dp-cal+.dp-sec{border-top:1px solid var(--line);margin-top:8px}
+.dp-lb{display:flex;align-items:center;gap:6px;height:16px;margin:0 0 7px 1px;font-size:11.5px;font-weight:600;color:var(--t3)}
+.dp-lb .i{width:13px;height:13px}
+.dp-lb.dp-days{margin:10px 0 6px 1px;font-weight:500}
+.dp-quick{display:flex;flex-wrap:wrap;gap:5px}
+.dp-chips{display:grid;gap:5px}
+.dp-time{grid-template-columns:repeat(5,1fr)}
+.dp-rep{grid-template-columns:repeat(3,1fr)}
+.pop.dp .dp-c{height:28px;padding:0 9px;border-radius:6px;font-size:12px;color:var(--t2);background:var(--raise);
+  transition:background var(--d1),color var(--d1)}
+.pop.dp .dp-c:hover{background:var(--raise-2);color:var(--t1)}
+.pop.dp .dp-c.sel{background:var(--ac);color:var(--ink);font-weight:600}
+.pop.dp .dp-quick .dp-c{flex:1 1 auto;padding:0 7px}
+.pop.dp .dp-more{gap:5px}
+.pop.dp .dp-more .i{width:12px;height:12px}
+.pop.dp .dp-more.open{background:var(--raise-2);color:var(--t1)}
+.pop.dp .dp-more.sel:not(.open) .i{color:var(--ink)}
+/* the month, under the date chips when «Дата…» is open */
+.dp-cal{margin-top:8px}
+.dp-cal[hidden]{display:none}
+.dp-mh{display:flex;align-items:center;gap:2px;height:28px;padding-left:4px}
+.dp-mh b{flex:1;font-size:12.5px;font-weight:600}
+.pop.dp .dp-mh .ib{width:26px;height:26px}
+.pop.dp .dp-mh .ib:hover{background:var(--raise-2)}
+.dp-g{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.dp-g i{font-style:normal;font-size:10.5px;line-height:22px;text-align:center;color:var(--t4)}
+.pop.dp .dp-d{height:30px;border-radius:6px;font-size:12px;color:var(--t1);font-variant-numeric:tabular-nums;transition:background var(--d1)}
+.pop.dp .dp-d:hover{background:var(--raise-2)}
+.pop.dp .dp-d.out,.pop.dp .dp-d.past{color:var(--t4)}
+.pop.dp .dp-d.today{color:var(--ac-txt);font-weight:600;box-shadow:inset 0 0 0 1px var(--ac-line)}
+.pop.dp .dp-d.occ{color:var(--ac-txt);background:var(--ac-soft)}
+.pop.dp .dp-d.sel{color:var(--ink);font-weight:600;background:var(--ac);box-shadow:none}
+.pop.dp .dp-own{width:100%;height:28px;padding:0 4px;border-radius:6px;font-size:12px;text-align:center;font-variant-numeric:tabular-nums;
+  background:var(--well);box-shadow:inset 0 0 0 1px var(--line)}
+.pop.dp .dp-own:focus{box-shadow:inset 0 0 0 1px var(--ac-line)}
+.pop.dp .dp-own.sel{color:var(--ac-txt);font-weight:600;box-shadow:inset 0 0 0 1px var(--ac)}
+.dp-wds-box[hidden]{display:none}
+.dp-wds{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.pop.dp .dp-wds .dp-c{padding:0}
+/* the field's well is behind the tinted words, not over them */
+.dp-txt .hl{border-radius:6px;background:var(--well)}
+.pop.dp .dp-txt .hl>input{height:30px;background:transparent}
+.dp-prev{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:7px}
+.dp-prev:empty{display:none}
+.dp-prev kbd{margin-left:auto}
 .pop hr{border:0;height:1px;background:var(--line);margin:4px 2px}
-.pop input{width:100%;height:28px;padding:0 10px;border-radius:5px;background:rgba(0,0,0,.25);font-size:12.5px}
+.pop input{width:100%;height:28px;padding:0 10px;border-radius:5px;background:var(--well);font-size:12.5px}
 .pop input:focus{box-shadow:inset 0 0 0 1px var(--ac-line)}
